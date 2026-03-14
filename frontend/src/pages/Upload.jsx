@@ -121,7 +121,7 @@ export default function Upload() {
                     <div className="glass rounded-3xl p-6">
                         <div className="text-sm font-semibold">Scan Video Link</div>
                         <div className="mt-1 text-sm text-text/70">
-                            Paste a direct MP4 URL. If the video can’t be fetched, you’ll see a message.
+                            Paste a video link (YouTube/Instagram/Facebook or direct file URL). Public links work best.
                         </div>
 
                         <div className="mt-4 flex flex-col gap-3 sm:flex-row">
@@ -130,7 +130,7 @@ export default function Upload() {
                                 onChange={(e) => setVideoUrl(e.target.value)}
                                 type="url"
                                 disabled={loading}
-                                placeholder="https://example.com/video.mp4"
+                                placeholder="https://youtube.com/watch?v=..."
                                 className="w-full flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none focus:border-white/20 disabled:cursor-not-allowed"
                             />
                             <button

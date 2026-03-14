@@ -23,9 +23,22 @@ Backend runs on `http://localhost:5000` by default.
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `POST /api/detect/upload` (auth, multipart field name: `file`)
+- `POST /api/detect/url` (auth, JSON body: `{ "url": "https://..." }`)
 - `GET /api/detect/history` (auth)
 
 Uploads are served from `GET /uploads/<filename>`.
+
+## Video link scanning
+
+`POST /api/detect/url` supports:
+
+- Direct video file URLs (e.g. `https://.../video.mp4`, `video.webm`)
+- Platform page links (YouTube/Instagram/Facebook) by downloading the video server-side via `yt-dlp`
+
+Notes:
+
+- Some platforms require login/cookies for certain videos; public links work best.
+- The server blocks localhost/private-network URLs to reduce SSRF risk.
 
 ## Python AI service
 

@@ -159,7 +159,26 @@ def _score_from_image_bytes(data: bytes) -> float:
     return _heuristic_image_score(img)
 
 
-def _score_from_video_bytes(data: bytes) -> float:
+def _suffix_from_upload(filename: str | None, mime: str | None) -> str:
+    name = (filename or "").strip()
+    if name:
+        _, ext = os.path.splitext(name)
+        if ext and len(ext) <= 10:
+            return ext
+
+    m = (mime or "").lower().strip()
+    if m == "video/webm":
+        return ".webm"
+    if m in ("video/quicktime", "video/mov"):
+        return ".mov"
+    if m in ("video/x-matroska", "video/mkv"):
+        return ".mkv"
+    if m in ("video/x-msvideo", "video/avi"):
+        return ".avi"
+    return ".mp4"
+
+
+def _score_from_video_bytes(data: bytes, *, suffix: str = ".mp4") -> float:
     # Lightweight heuristic placeholder.
     # If OpenCV is available, try to decode a few frames from an in-memory buffer.
     if cv2 is None:
@@ -172,7 +191,7 @@ def _score_from_video_bytes(data: bytes) -> float:
 
     try:
         with tempfile.NamedTemporaryFile(
-            mode="wb", suffix=".mp4", delete=False, dir=tmp_dir
+            mode="wb", suffix=suffix or ".mp4", delete=False, dir=tmp_dir
         ) as f:
             tmp_path = f.name
             f.write(data)
@@ -248,7 +267,8 @@ async def detect(file: UploadFile = File(...)):
         else:
             score = _score_from_image_bytes(data)
     else:
-        score = _score_from_video_bytes(data)
+        suffix = _suffix_from_upload(getattr(file, "filename", None), file.content_type)
+        score = _score_from_video_bytes(data, suffix=suffix)
 
     resp = {"score": round(float(score), 2), "source": source}
     if explanation:
