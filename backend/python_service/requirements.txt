@@ -1,0 +1,9 @@
+fastapi==0.115.6
+uvicorn[standard]==0.30.6
+python-multipart==0.0.12
+pillow==10.4.0
+opencv-python==4.10.0.84
+numpy==2.1.1
+httpx==0.27.2
+# NOTE: torch can be large; install a compatible build for your machine if you need real model inference.
+# torch==2.5.1
