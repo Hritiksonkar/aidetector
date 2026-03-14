@@ -16,4 +16,34 @@ export default defineConfig({
             },
         },
     },
+    build: {
+        rollupOptions: {
+            output: {
+                manualChunks: (id) => {
+                    if (!id) return undefined
+                    const normalized = id.replace(/\\/g, '/')
+                    if (!normalized.includes('/node_modules/')) return undefined
+
+                    if (
+                        normalized.includes('/node_modules/react/') ||
+                        normalized.includes('/node_modules/react-dom/') ||
+                        normalized.includes('/node_modules/react-router/') ||
+                        normalized.includes('/node_modules/react-router-dom/')
+                    ) {
+                        return 'vendor-react'
+                    }
+
+                    if (normalized.includes('/node_modules/framer-motion/')) {
+                        return 'vendor-motion'
+                    }
+
+                    if (normalized.includes('/node_modules/recharts/')) {
+                        return 'vendor-recharts'
+                    }
+
+                    return 'vendor'
+                },
+            },
+        },
+    },
 })

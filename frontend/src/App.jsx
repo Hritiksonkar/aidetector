@@ -2,12 +2,13 @@ import React from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import Navbar from './components/Navbar.jsx'
-import Home from './pages/Home.jsx'
-import Upload from './pages/Upload.jsx'
-import Dashboard from './pages/Dashboard.jsx'
-import Login from './pages/Login.jsx'
-import Register from './pages/Register.jsx'
 import { setAuthToken } from './services/api.js'
+
+const Home = React.lazy(() => import('./pages/Home.jsx'))
+const Upload = React.lazy(() => import('./pages/Upload.jsx'))
+const Dashboard = React.lazy(() => import('./pages/Dashboard.jsx'))
+const Login = React.lazy(() => import('./pages/Login.jsx'))
+const Register = React.lazy(() => import('./pages/Register.jsx'))
 
 function Page({ children }) {
     return (
@@ -19,6 +20,14 @@ function Page({ children }) {
         >
             {children}
         </motion.div>
+    )
+}
+
+function Lazy({ children }) {
+    return (
+        <React.Suspense fallback={<div className="text-sm text-text/70">Loading...</div>}>
+            {children}
+        </React.Suspense>
     )
 }
 
@@ -49,26 +58,32 @@ export default function App() {
                         <Route
                             path="/"
                             element={
-                                <Page>
-                                    <Home />
-                                </Page>
+                                <Lazy>
+                                    <Page>
+                                        <Home />
+                                    </Page>
+                                </Lazy>
                             }
                         />
                         <Route
                             path="/upload"
                             element={
-                                <Page>
-                                    <Upload />
-                                </Page>
+                                <Lazy>
+                                    <Page>
+                                        <Upload />
+                                    </Page>
+                                </Lazy>
                             }
                         />
                         <Route
                             path="/dashboard"
                             element={
                                 authed ? (
-                                    <Page>
-                                        <Dashboard />
-                                    </Page>
+                                    <Lazy>
+                                        <Page>
+                                            <Dashboard />
+                                        </Page>
+                                    </Lazy>
                                 ) : (
                                     <Navigate to="/login" replace />
                                 )
@@ -80,9 +95,11 @@ export default function App() {
                                 authed ? (
                                     <Navigate to="/dashboard" replace />
                                 ) : (
-                                    <Page>
-                                        <Login onLogin={handleLogin} />
-                                    </Page>
+                                    <Lazy>
+                                        <Page>
+                                            <Login onLogin={handleLogin} />
+                                        </Page>
+                                    </Lazy>
                                 )
                             }
                         />
@@ -92,9 +109,11 @@ export default function App() {
                                 authed ? (
                                     <Navigate to="/dashboard" replace />
                                 ) : (
-                                    <Page>
-                                        <Register onRegister={handleLogin} />
-                                    </Page>
+                                    <Lazy>
+                                        <Page>
+                                            <Register onRegister={handleLogin} />
+                                        </Page>
+                                    </Lazy>
                                 )
                             }
                         />
