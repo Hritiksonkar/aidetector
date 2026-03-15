@@ -15,24 +15,24 @@ dotenv.config();
 
 const app = express();
 
-// Trust the Render/Vercel proxy
+// 1. Core Config
 app.set('trust proxy', 1);
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 
-app.use(helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
-
-app.use(cors({
-    origin: '*', // Allows development and production frontends to connect
+// 2. Enhanced CORS (CRITICAL for production file uploads)
+const corsOptions = {
+    origin: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
-}));
+    credentials: true,
+    optionsSuccessStatus: 204
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // This handles the hidden "preflight" requests
 
+// 3. Request Logging (Watch your Render dashboard for this)
 app.use((req, res, next) => {
-    if (process.env.NODE_ENV === 'development') {
-        console.log(`${req.method} ${req.url}`);
-    }
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
     next();
 });
 
@@ -43,26 +43,17 @@ if (process.env.NODE_ENV === 'development') {
     app.use(morgan('dev'));
 }
 
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok' });
-});
-
-// Ensure uploads directory exists (important for cloud deploys where the folder isn't committed).
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-}
+// 4. Static Files & Root Health Check
+app.get('/', (req, res) => res.send('<h1>Truth Shield API is Online</h1>'));
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Diagnostic route to check if API is alive in production
-app.get('/api/test', (req, res) => {
-    res.json({ message: 'API is reaching the server successfully', env: process.env.NODE_ENV });
-});
-
+// 5. API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/detect', detectRoutes);
 
+// 6. Error Handling
 app.use(notFound);
 app.use(errorHandler);
 
