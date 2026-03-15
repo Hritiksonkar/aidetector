@@ -28,7 +28,11 @@ const allowedMimes = new Set(['image/jpeg', 'image/png', 'video/mp4']);
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, path.join(__dirname, '..', 'uploads'));
+        try {
+            cb(null, ensureUploadsDir());
+        } catch (e) {
+            cb(e);
+        }
     },
     filename: (req, file, cb) => {
         const safeOriginal = (file.originalname || 'upload').replace(/[^a-zA-Z0-9._-]/g, '_');

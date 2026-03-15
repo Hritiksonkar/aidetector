@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
@@ -26,6 +27,12 @@ if (process.env.NODE_ENV === 'development') {
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
 });
+
+// Ensure uploads directory exists (important for cloud deploys where the folder isn't committed).
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
