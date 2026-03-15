@@ -1,6 +1,7 @@
 import axios from 'axios'
 
-const baseURL = import.meta.env.VITE_API_BASE_URL || ''
+const rawBaseURL = import.meta.env.VITE_API_BASE_URL || 'https://aidetector-i61w.onrender.com'
+const baseURL = rawBaseURL.replace(/\/$/, '')
 
 export const api = axios.create({
     baseURL,
