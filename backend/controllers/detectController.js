@@ -24,7 +24,7 @@ function getMaxUploadBytes() {
     return Number.isFinite(n) && n > 0 ? n : 100 * 1024 * 1024;
 }
 
-const allowedMimes = new Set(['image/jpeg', 'image/png', 'video/mp4']);
+const allowedMimes = new Set(['image/jpeg', 'image/jpg', 'image/png', 'video/mp4']);
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {

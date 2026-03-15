@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 
 const ACCEPTED = {
     'image/jpeg': true,
+    'image/jpg': true,
     'image/png': true,
     'video/mp4': true,
 }
