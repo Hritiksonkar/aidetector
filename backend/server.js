@@ -15,11 +15,18 @@ dotenv.config();
 
 const app = express();
 
-app.use(helmet());
+// Trust the Render/Vercel proxy
+app.set('trust proxy', 1);
+
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
 app.use(cors({
-    origin: '*', // For development; in production replace with your frontend URL
+    origin: '*', // Allows development and production frontends to connect
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
 }));
 
 app.use((req, res, next) => {
@@ -48,6 +55,11 @@ if (!fs.existsSync(uploadsDir)) {
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Diagnostic route to check if API is alive in production
+app.get('/api/test', (req, res) => {
+    res.json({ message: 'API is reaching the server successfully', env: process.env.NODE_ENV });
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/detect', detectRoutes);
 
@@ -56,14 +68,12 @@ app.use(errorHandler);
 
 const port = process.env.PORT || 5000;
 
-(async () => {
-    await connectDB(process.env.MONGO_URI);
-    app.listen(port, () => {
-        // eslint-disable-next-line no-console
-        console.log(`Truth Shield backend listening on :${port}`);
-    });
-})().catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error('Failed to start server:', err);
-    process.exit(1);
+// Start server immediately (don't block on DB) to satisfy Render's port check
+const server = app.listen(port, () => {
+    console.log(`Truth Shield backend listening on :${port}`);
+});
+
+// Connect to DB in background
+connectDB(process.env.MONGO_URI).catch(err => {
+    console.error('Database connection failed:', err);
 });
