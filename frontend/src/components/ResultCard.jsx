@@ -1,5 +1,6 @@
 import React from 'react'
 import ScoreMeter from './ScoreMeter.jsx'
+import { resolveApiUrl } from '../services/api.js'
 
 function verdict(score) {
     const s = Number(score)
@@ -40,7 +41,7 @@ export default function ResultCard({ file, result }) {
     React.useEffect(() => {
         // If backend returned a persisted upload URL (e.g. URL-scan), prefer that.
         if (!file && result?.fileUrl) {
-            setPreviewUrl(result.fileUrl)
+            setPreviewUrl(resolveApiUrl(result.fileUrl))
             return
         }
 

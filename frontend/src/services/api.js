@@ -1,12 +1,23 @@
 import axios from 'axios'
 
-const isLocal = typeof window !== 'undefined' && 
-                (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+const isLocal = typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
 // Only use the full production URL if we are NOT on localhost.
 // This allows the Vite proxy to work correctly during local development.
 const rawBaseURL = isLocal ? '' : (import.meta.env.VITE_API_BASE_URL || 'https://aidetector-i61w.onrender.com');
 const baseURL = rawBaseURL.replace(/\/$/, '');
+
+// Use this for rendering backend-hosted assets (e.g. `/uploads/<file>`).
+// In local dev, `baseURL === ''` and Vite proxies `/uploads` to the backend.
+export const API_BASE_URL = baseURL;
+
+export function resolveApiUrl(url) {
+    if (!url) return url;
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    if (!API_BASE_URL) return url;
+    return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+}
 
 export const api = axios.create({
     baseURL,

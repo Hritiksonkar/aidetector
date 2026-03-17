@@ -1,5 +1,5 @@
 import React from 'react'
-import { fetchHistory } from '../services/api.js'
+import { fetchHistory, resolveApiUrl } from '../services/api.js'
 
 function verdict(score) {
     const s = Number(score)
@@ -48,13 +48,7 @@ export default function Dashboard() {
         }
     }, [])
 
-    const apiBase = import.meta.env.VITE_API_BASE_URL || ''
-    const withBase = (url) => {
-        if (!url) return url
-        if (url.startsWith('http://') || url.startsWith('https://')) return url
-        if (!apiBase) return url
-        return `${apiBase}${url.startsWith('/') ? '' : '/'}${url}`
-    }
+    const withBase = resolveApiUrl
 
     return (
         <div className="space-y-6">
