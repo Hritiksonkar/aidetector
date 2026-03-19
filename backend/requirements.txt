@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+opencv-python
+torch
+torchvision
+pymongo
+python-multipart
+Pillow
+pydantic
+requests
+cloudinary
+python-dotenv
+yt-dlp
