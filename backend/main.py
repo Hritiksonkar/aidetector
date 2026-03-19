@@ -12,10 +12,12 @@ app = FastAPI(
 )
 
 # CORS middleware for frontend communication
-# Set allow_origins to ["*"] or your frontend URL
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all domains for demo
+    allow_origins=[
+        "http://localhost:5173", 
+        "https://aidetector-sandy.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
