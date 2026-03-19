@@ -12,13 +12,11 @@ app = FastAPI(
 )
 
 # CORS middleware for frontend communication
+# Disable credentials to allow wildcard origins securely for a public API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173", 
-        "https://aidetector-sandy.vercel.app"
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
