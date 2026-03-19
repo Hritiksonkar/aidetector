@@ -119,8 +119,12 @@ function App() {
     }
 
     try {
-      const response = await axios.post(`${API_URL}/detect`, formData);
-      
+      const response = await axios.post(`${API_URL}/detect`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
       clearInterval(timer);
       setProgress(100);
       setResult(response.data);

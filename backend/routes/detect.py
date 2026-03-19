@@ -17,12 +17,9 @@ ALLOWED_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.mp4', '.mov')
 
 @router.post("/detect")
 async def detect(
-    file: UploadFile = File(None),
-    url: str = Form(None)
+    file: Optional[UploadFile] = File(None),
+    url: Optional[str] = Form(None)
 ):
-    print("File:", file)
-    print("URL:", url)
-    
     if not file and not url:
         raise HTTPException(status_code=400, detail="Please provide a file or a valid URL.")
     
