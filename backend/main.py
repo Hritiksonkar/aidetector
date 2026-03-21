@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -20,8 +21,19 @@ app = FastAPI(
 cors_allow_origins_env = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
 cors_allow_origin_regex = os.getenv("CORS_ALLOW_ORIGIN_REGEX")
 
+
+def _normalize_origin(origin: str) -> str | None:
+    origin = (origin or "").strip()
+    if not origin:
+        return None
+    # If someone accidentally pastes a full URL (with path/query), keep only scheme + host.
+    parsed = urlparse(origin)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return origin.rstrip("/")
+
 allow_origins = (
-    [o.strip() for o in cors_allow_origins_env.split(",") if o.strip()]
+    [o for o in (_normalize_origin(x) for x in cors_allow_origins_env.split(",")) if o]
     if cors_allow_origins_env
     else ["https://aidetector-sandy.vercel.app"]
 )
