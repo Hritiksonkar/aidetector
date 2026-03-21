@@ -4,11 +4,19 @@ import numpy as np
 import requests
 import time
 import asyncio
+import os
 from model.predict import predict_image, predict_frame
 from utils.video import extract_frames
 from utils.storage import upload_media
 from utils.social import download_social_media
 from database.db import log_prediction
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return val.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 router = APIRouter()
 
@@ -20,6 +28,9 @@ async def detect(
     file: Optional[UploadFile] = File(None),
     url: Optional[str] = Form(None)
 ):
+    if url is not None:
+        url = url.strip()
+
     if not file and not url:
         raise HTTPException(status_code=400, detail="Please provide a file or a valid URL.")
     
@@ -59,11 +70,26 @@ async def detect(
                     kind = "video"
                     filename = "social_video.mp4"
                 except Exception as e:
-                    raise HTTPException(status_code=400, detail=f"Failed to extract video from social url: {str(e)}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Failed to extract video from social url: {str(e)}. "
+                            "Tip: try a public link (no login), or a direct .mp4/.jpg URL."
+                        ),
+                    )
             else:
                 try:
                     # Stream download for size checking
-                    response = requests.get(url, stream=True, timeout=15)
+                    verify_ssl = _env_flag("HTTP_VERIFY_SSL", default=True)
+                    try:
+                        response = requests.get(url, stream=True, timeout=15, verify=verify_ssl)
+                    except requests.exceptions.SSLError:
+                        # Common in corp/proxy environments with custom CAs.
+                        # Retry once without verification so dev can proceed.
+                        if verify_ssl:
+                            response = requests.get(url, stream=True, timeout=15, verify=False)
+                        else:
+                            raise
                     response.raise_for_status()
                     
                     content_type = response.headers.get("Content-Type", "")
@@ -107,7 +133,10 @@ async def detect(
                 raise HTTPException(status_code=400, detail="Failed to extract frames from video")
             
             scores = [predict_frame(f) for f in frames]
-            score = round(sum(scores) / len(scores), 1)
+            # Conservative scoring: average of the worst 30% frames
+            scores_sorted = sorted(scores)
+            k = max(1, int(len(scores_sorted) * 0.3))
+            score = round(sum(scores_sorted[:k]) / k, 1)
         else:
             raise HTTPException(status_code=400, detail="Unsupported media format.")
             
@@ -118,6 +147,9 @@ async def detect(
             prediction = "Suspicious"
         else:
             prediction = "Real"
+
+        real_percent = round((score / 10.0) * 100.0, 1)
+        ai_percent = round(100.0 - real_percent, 1)
         # Upload to Cloudinary (optional fallback if configured)
         cloud_url = upload_media(data, filename) if data else None
 
@@ -129,6 +161,8 @@ async def detect(
         response_payload = {
             "prediction": prediction,
             "confidence_score": score,
+            "real_percent": real_percent,
+            "ai_percent": ai_percent,
             "source_type": "URL" if input_type == "url" else "Uploaded",
             "processing_time": f"{processing_time}s",
             "message": "Analysis complete"

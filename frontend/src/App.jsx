@@ -16,6 +16,13 @@ import {
 
 const API_URL = import.meta.env.VITE_API_URL;
 
+const extractFirstUrl = (text) => {
+  if (!text) return '';
+  const trimmed = String(text).trim();
+  const match = trimmed.match(/https?:\/\/[^\s<>"']+/i);
+  return (match ? match[0] : trimmed).trim();
+};
+
 function App() {
   const [file, setFile] = useState(null);
   const [urlInput, setUrlInput] = useState('');
@@ -59,15 +66,17 @@ function App() {
     if (e) e.preventDefault();
     if (!urlInput.trim()) return;
 
+    const cleanedUrl = extractFirstUrl(urlInput);
+
     // Auto-detect type from extension as fallback, or use image as default visual
-    const isVideo = urlInput.match(/\.(mp4|webm|mov|avi)($|\?)/i);
+    const isVideo = cleanedUrl.match(/\.(mp4|webm|mov|avi)($|\?)/i);
 
     setFile(null);
     setStatus('idle');
     setResult(null);
     setErrorMsg('');
     setProgress(0);
-    setPreview({ url: urlInput, type: isVideo ? 'video' : 'image' });
+    setPreview({ url: cleanedUrl, type: isVideo ? 'video' : 'image' });
   };
 
   const onDragOver = (e) => {
@@ -115,7 +124,7 @@ function App() {
     if (file) {
       formData.append('file', file);
     } else if (urlInput) {
-      formData.append('url', urlInput);
+      formData.append('url', extractFirstUrl(urlInput));
     }
 
     try {
@@ -458,6 +467,13 @@ function App() {
                           <span>Real</span>
                           <span>10</span>
                         </div>
+
+                        {(typeof result.real_percent === 'number' || typeof result.ai_percent === 'number') && (
+                          <div className="text-xs text-slate-400 flex justify-between pt-1">
+                            <span>Real: <span className="text-slate-200 font-medium">{result.real_percent ?? Math.round((result.confidence_score / 10) * 100)}%</span></span>
+                            <span>AI: <span className="text-slate-200 font-medium">{result.ai_percent ?? Math.round(100 - (result.confidence_score / 10) * 100)}%</span></span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Explainability / Meta */}
