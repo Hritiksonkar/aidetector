@@ -1,15 +1,24 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-    content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+    content: ['./index.html', './src/**/*.{js,jsx,ts,tsx}'],
     theme: {
         extend: {
-            colors: {
-                primary: '#4F46E5',
-                secondary: '#6366F1',
-                background: '#0F172A',
-                text: '#E2E8F0',
+            keyframes: {
+                floaty: {
+                    '0%, 100%': { transform: 'translateY(0px)' },
+                    '50%': { transform: 'translateY(-10px)' }
+                },
+                shimmer: {
+                    '0%': { backgroundPosition: '0% 50%' },
+                    '50%': { backgroundPosition: '100% 50%' },
+                    '100%': { backgroundPosition: '0% 50%' }
+                }
             },
-        },
+            animation: {
+                floaty: 'floaty 6s ease-in-out infinite',
+                shimmer: 'shimmer 10s ease-in-out infinite'
+            }
+        }
     },
-    plugins: [],
-}
+    plugins: []
+};

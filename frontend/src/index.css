@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    color-scheme: dark;
+}
+
+html.light {
+    color-scheme: light;
+}
+
+html,
+body {
+    height: 100%;
+}
+
+body {
+    @apply bg-slate-950 text-slate-100;
+}
+
+html.light body {
+    @apply bg-slate-50 text-slate-950;
+}
+
+/* Subtle animated gradient backdrop */
+.app-bg {
+    background: radial-gradient(900px circle at 20% 10%, rgba(99, 102, 241, 0.35), transparent 55%),
+        radial-gradient(800px circle at 80% 15%, rgba(236, 72, 153, 0.28), transparent 55%),
+        radial-gradient(700px circle at 50% 90%, rgba(34, 197, 94, 0.18), transparent 60%),
+        linear-gradient(180deg, rgb(2 6 23), rgb(2 6 23));
+}
+
+html.light .app-bg {
+    background: radial-gradient(900px circle at 20% 10%, rgba(99, 102, 241, 0.22), transparent 55%),
+        radial-gradient(800px circle at 80% 15%, rgba(236, 72, 153, 0.18), transparent 55%),
+        radial-gradient(700px circle at 50% 90%, rgba(34, 197, 94, 0.14), transparent 60%),
+        linear-gradient(180deg, rgb(248 250 252), rgb(241 245 249));
+}
+
+.glass {
+    @apply bg-white/5 border border-white/10 backdrop-blur-xl;
+}
+
+html.light .glass {
+    @apply bg-slate-950/5 border-slate-950/10;
+}
+
+.btn-grad {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold text-white transition;
+    background-size: 200% 200%;
+    background-image: linear-gradient(120deg, rgba(99, 102, 241, 1), rgba(236, 72, 153, 1), rgba(34, 197, 94, 1));
+}
+
+.btn-grad:hover {
+    filter: brightness(1.05);
+}
+
+.btn-grad:disabled {
+    @apply opacity-60 cursor-not-allowed;
+}
+
+.input {
+    @apply w-full rounded-xl bg-white/5 border border-white/10 px-4 py-3 outline-none transition;
+}
+
+.input:focus {
+    @apply border-white/20 ring-2 ring-indigo-500/30;
+}
+
+.tab {
+    @apply rounded-xl px-4 py-2 text-sm font-semibold transition;
+}
+
+.tab-active {
+    @apply bg-white/10 border border-white/10;
+}
+
+.tab-inactive {
+    @apply text-slate-200/80 hover:bg-white/5;
+}
