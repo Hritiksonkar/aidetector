@@ -5,12 +5,25 @@ const { config } = require('../config/env');
 
 const client = axios.create({
     baseURL: config.pythonApiBaseUrl,
-    timeout: 15_000
+    // ML model downloads / first inference can take a while on cold start.
+    timeout: 300_000
+});
+
+const slowClient = axios.create({
+    baseURL: config.pythonApiBaseUrl,
+    // BART MNLI model is large; cold start can exceed 5 minutes.
+    timeout: 900_000
 });
 
 async function detectText(text) {
     console.log('[pythonService] detectText -> /text');
     const response = await client.post('/text', { text });
+    return response.data;
+}
+
+async function detectNews(text) {
+    console.log('[pythonService] detectNews -> /news');
+    const response = await slowClient.post('/news', { text });
     return response.data;
 }
 
@@ -40,6 +53,7 @@ async function detectImage(filePath, originalName = 'image') {
 
 module.exports = {
     detectText,
+    detectNews,
     detectImage,
     detectVideo
 };

@@ -1,6 +1,7 @@
 const fs = require('fs/promises');
 const Joi = require('joi');
 const pythonService = require('../services/pythonService');
+const sightengineService = require('../services/sightengineService');
 
 const textSchema = Joi.object({
     text: Joi.string().trim().min(1).max(50_000).required()
@@ -48,6 +49,29 @@ async function detectText(req, res, next) {
     }
 }
 
+async function detectNews(req, res, next) {
+    try {
+        const { error } = textSchema.validate(req.body, { abortEarly: false });
+        if (error) {
+            console.log('[detectNews] validation error:', error.details.map((d) => d.message));
+            return res.status(400).json({
+                error: 'Bad Request',
+                message: 'Validation failed',
+                details: error.details.map((d) => ({ message: d.message, path: d.path }))
+            });
+        }
+
+        const { text } = req.body;
+        const data = await pythonService.detectNews(text);
+        const normalized = normalizePythonResult(data);
+
+        return res.status(200).json(normalized);
+    } catch (err) {
+        console.log('[detectNews] error:', err?.message || err);
+        return next(err);
+    }
+}
+
 async function detectVideo(req, res, next) {
     try {
         const { error } = videoSchema.validate(req.body, { abortEarly: false });
@@ -81,9 +105,7 @@ async function detectImage(req, res, next) {
             });
         }
 
-        const data = await pythonService.detectImage(uploaded.path, uploaded.originalname);
-        const normalized = normalizePythonResult(data);
-
+        const normalized = await sightengineService.detectImage(uploaded.path, uploaded.originalname);
         return res.status(200).json(normalized);
     } catch (err) {
         console.log('[detectImage] error:', err?.message || err);
@@ -101,6 +123,7 @@ async function detectImage(req, res, next) {
 
 module.exports = {
     detectText,
+    detectNews,
     detectImage,
     detectVideo
 };

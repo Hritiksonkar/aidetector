@@ -1,0 +1,23 @@
+ 
+.env
+.env.*
+
+backend/.env
+backend/.env.*
+frontend/.env
+frontend/.env.*
+
+# Node
+**/node_modules/
+
+# Frontend build artifacts
+**/dist/
+**/.vite/
+
+# Temp uploads / scratch
+**/tmp/
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/.venv/

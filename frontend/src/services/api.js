@@ -7,6 +7,10 @@ export const api = axios.create({
     timeout: 15000
 });
 
+const TEXT_TIMEOUT_MS = 60_000;
+const NEWS_TIMEOUT_MS = 180_000;
+const VIDEO_TIMEOUT_MS = 180_000;
+
 function normalizeConfidence(confidence) {
     const n = Number(confidence);
     if (!Number.isFinite(n)) return 0;
@@ -24,12 +28,17 @@ export function normalizeDetectResponse(data) {
 }
 
 export async function detectText(text) {
-    const res = await api.post('/api/detect/text', { text });
+    const res = await api.post('/api/detect/text', { text }, { timeout: TEXT_TIMEOUT_MS });
+    return normalizeDetectResponse(res.data);
+}
+
+export async function detectNews(text) {
+    const res = await api.post('/api/detect/news', { text }, { timeout: NEWS_TIMEOUT_MS });
     return normalizeDetectResponse(res.data);
 }
 
 export async function detectVideo(videoUrl) {
-    const res = await api.post('/api/detect/video', { videoUrl });
+    const res = await api.post('/api/detect/video', { videoUrl }, { timeout: VIDEO_TIMEOUT_MS });
     return normalizeDetectResponse(res.data);
 }
 

@@ -1,45 +1,49 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { FiFileText, FiImage, FiVideo, FiUploadCloud } from 'react-icons/fi';
+import { FiFileText, FiImage, FiUploadCloud, FiVideo } from 'react-icons/fi';
 
 import Tabs from '../components/Tabs.jsx';
 import ResultCard from '../components/ResultCard.jsx';
 import Loader from '../components/Loader.jsx';
-import { detectImage, detectText, detectVideo } from '../services/api.js';
+import { detectImage, detectNews, detectText, detectVideo } from '../services/api.js';
 
-const TAB_TEXT = 'text';
+const TAB_CONTENT = 'content';
 const TAB_IMAGE = 'image';
 const TAB_VIDEO = 'video';
+
+const CONTENT_TEXT = 'text';
+const CONTENT_NEWS = 'news';
 
 export default function Dashboard() {
     const tabs = useMemo(
         () => [
-            { key: TAB_TEXT, label: 'Text Detection', icon: <FiFileText /> },
+            { key: TAB_CONTENT, label: 'Text + News', icon: <FiFileText /> },
             { key: TAB_IMAGE, label: 'Image Detection', icon: <FiImage /> },
-            { key: TAB_VIDEO, label: 'Video Detection', icon: <FiVideo /> }
+            { key: TAB_VIDEO, label: 'Video Detection', icon: <FiVideo /> },
         ],
         []
     );
 
-    const [active, setActive] = useState(TAB_TEXT);
+    const [active, setActive] = useState(TAB_CONTENT);
 
     // shared result
     const [result, setResult] = useState(null);
     const [confidence, setConfidence] = useState(0);
     const [loading, setLoading] = useState(false);
 
-    // text
-    const [text, setText] = useState('');
-
-    // video
-    const [videoUrl, setVideoUrl] = useState('');
+    // content (text + news)
+    const [contentMode, setContentMode] = useState(CONTENT_TEXT);
+    const [contentText, setContentText] = useState('');
 
     // image
     const [dragOver, setDragOver] = useState(false);
     const [imageFile, setImageFile] = useState(null);
     const [imagePreview, setImagePreview] = useState('');
     const fileInputRef = useRef(null);
+
+    // video
+    const [videoUrl, setVideoUrl] = useState('');
 
     useEffect(() => {
         return () => {
@@ -70,21 +74,56 @@ export default function Dashboard() {
         setImagePreview(url);
     }
 
-    async function onAnalyzeText() {
+    async function onAnalyzeContent(mode) {
         try {
             setLoading(true);
             resetResult();
+            setContentMode(mode);
 
-            if (!text.trim()) {
+            if (!contentText.trim()) {
                 toast.error('Text is required.');
                 return;
             }
 
-            const data = await detectText(text.trim());
+            const input = contentText.trim();
+            const data = mode === CONTENT_NEWS ? await detectNews(input) : await detectText(input);
             setApiResult(data);
-            toast.success('Text analyzed successfully');
+            toast.success(mode === CONTENT_NEWS ? 'News analyzed successfully' : 'Text analyzed successfully');
         } catch (err) {
-            const msg = err?.response?.data?.message || err?.message || 'Failed to analyze text';
+            const msg =
+                err?.response?.data?.message ||
+                err?.message ||
+                (mode === CONTENT_NEWS ? 'Failed to analyze news' : 'Failed to analyze text');
+            toast.error(msg);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    const resultTitle =
+        active === TAB_CONTENT
+            ? contentMode === CONTENT_NEWS
+                ? 'News Detection Result'
+                : 'AI Text Detection Result'
+            : active === TAB_IMAGE
+                ? 'Image Detection Result'
+                : 'Video Detection Result';
+
+    async function onAnalyzeImage() {
+        try {
+            setLoading(true);
+            resetResult();
+
+            if (!imageFile) {
+                toast.error('Please select an image first.');
+                return;
+            }
+
+            const data = await detectImage(imageFile);
+            setApiResult(data);
+            toast.success('Image analyzed successfully');
+        } catch (err) {
+            const msg = err?.response?.data?.message || err?.message || 'Failed to analyze image';
             toast.error(msg);
         } finally {
             setLoading(false);
@@ -112,27 +151,6 @@ export default function Dashboard() {
         }
     }
 
-    async function onAnalyzeImage() {
-        try {
-            setLoading(true);
-            resetResult();
-
-            if (!imageFile) {
-                toast.error('Please select an image first.');
-                return;
-            }
-
-            const data = await detectImage(imageFile);
-            setApiResult(data);
-            toast.success('Image analyzed successfully');
-        } catch (err) {
-            const msg = err?.response?.data?.message || err?.message || 'Failed to analyze image';
-            toast.error(msg);
-        } finally {
-            setLoading(false);
-        }
-    }
-
     return (
         <div className="pb-6">
             <div className="mb-6">
@@ -151,28 +169,76 @@ export default function Dashboard() {
 
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
                 <div className="glass rounded-3xl p-5">
-                    {active === TAB_TEXT && (
+                    {active === TAB_CONTENT && (
                         <div className="space-y-4">
                             <div>
-                                <div className="text-sm font-semibold text-slate-200/70">📝 Text Detection</div>
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div className="text-sm font-semibold text-slate-200/70">📝 Text + 📰 News Detection</div>
+
+                                    <div className="glass flex items-center gap-1 rounded-2xl p-1">
+                                        <button
+                                            type="button"
+                                            className={`tab ${contentMode === CONTENT_TEXT ? 'tab-active' : 'tab-inactive'}`}
+                                            onClick={() => {
+                                                setContentMode(CONTENT_TEXT);
+                                                resetResult();
+                                            }}
+                                        >
+                                            Text
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={`tab ${contentMode === CONTENT_NEWS ? 'tab-active' : 'tab-inactive'}`}
+                                            onClick={() => {
+                                                setContentMode(CONTENT_NEWS);
+                                                resetResult();
+                                            }}
+                                        >
+                                            News
+                                        </button>
+                                    </div>
+                                </div>
                                 <textarea
                                     className="input mt-3 min-h-[160px] resize-none"
-                                    placeholder="Paste text to analyze..."
-                                    value={text}
-                                    onChange={(e) => setText(e.target.value)}
+                                    placeholder={
+                                        contentMode === CONTENT_NEWS
+                                            ? 'Paste a news claim/article text to analyze...'
+                                            : 'Paste text to analyze...'
+                                    }
+                                    value={contentText}
+                                    onChange={(e) => setContentText(e.target.value)}
                                 />
                             </div>
 
-                            <motion.button
-                                whileHover={{ scale: loading ? 1 : 1.02 }}
-                                whileTap={{ scale: loading ? 1 : 0.98 }}
-                                disabled={loading}
-                                onClick={onAnalyzeText}
-                                className="btn-grad w-full animate-shimmer"
-                                type="button"
-                            >
-                                {loading ? <Loader /> : 'Analyze Text'}
-                            </motion.button>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                                <motion.button
+                                    whileHover={{ scale: loading ? 1 : 1.02 }}
+                                    whileTap={{ scale: loading ? 1 : 0.98 }}
+                                    disabled={loading}
+                                    onClick={() => {
+                                        setContentMode(CONTENT_TEXT);
+                                        onAnalyzeContent(CONTENT_TEXT);
+                                    }}
+                                    className="btn-grad w-full animate-shimmer"
+                                    type="button"
+                                >
+                                    {loading && contentMode === CONTENT_TEXT ? <Loader /> : 'Analyze as Text'}
+                                </motion.button>
+
+                                <motion.button
+                                    whileHover={{ scale: loading ? 1 : 1.02 }}
+                                    whileTap={{ scale: loading ? 1 : 0.98 }}
+                                    disabled={loading}
+                                    onClick={() => {
+                                        setContentMode(CONTENT_NEWS);
+                                        onAnalyzeContent(CONTENT_NEWS);
+                                    }}
+                                    className="btn-grad w-full animate-shimmer"
+                                    type="button"
+                                >
+                                    {loading && contentMode === CONTENT_NEWS ? <Loader /> : 'Analyze as News'}
+                                </motion.button>
+                            </div>
                         </div>
                     )}
 
@@ -262,11 +328,13 @@ export default function Dashboard() {
                             <div>
                                 <input
                                     className="input mt-3"
-                                    placeholder="Paste video URL (https://...)"
+                                    placeholder="https://example.com/video.mp4"
                                     value={videoUrl}
                                     onChange={(e) => setVideoUrl(e.target.value)}
                                 />
-                                <div className="mt-2 text-xs text-slate-200/60">Supported: any public https URL (demo)</div>
+                                <div className="mt-2 text-xs text-slate-200/60">
+                                    Use a direct public video file URL (e.g. .mp4). YouTube page links won’t work.
+                                </div>
                             </div>
 
                             <motion.button
@@ -292,7 +360,7 @@ export default function Dashboard() {
                         <div className="mt-1 text-sm text-slate-200/70">ML Service: http://localhost:8000</div>
                     </div>
 
-                    {result && <ResultCard result={result} confidence={confidence} />}
+                    {result && <ResultCard title={resultTitle} result={result} confidence={confidence} />}
 
                     {!result && (
                         <div className="glass grid min-h-[220px] place-items-center rounded-3xl p-5 text-center">

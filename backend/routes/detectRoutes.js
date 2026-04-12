@@ -5,6 +5,7 @@ const detectController = require('../controllers/detectController');
 const router = express.Router();
 
 router.post('/detect/text', detectController.detectText);
+router.post('/detect/news', detectController.detectNews);
 router.post('/detect/image', upload.single('image'), detectController.detectImage);
 router.post('/detect/video', detectController.detectVideo);
 
