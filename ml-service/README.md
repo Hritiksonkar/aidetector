@@ -36,17 +36,29 @@ Optional configuration:
 ```bash
 set VIDEO_DEEPFAKE_MODEL_ID=dima806/deepfake_vs_real_image_detection
 set VIDEO_DEEPFAKE_THRESHOLD=0.5
+
+:: Better aggregation for deepfakes (artifacts can appear only in some frames)
+set VIDEO_AGGREGATION=topk
+set VIDEO_TOPK_FRACTION=0.33
+
+:: Optional: downscale frames for speed (keeps face crop usable)
+set VIDEO_FRAME_MAX_SIDE=720
 ```
 
 ## Text Detection
 
-The `/text` endpoint uses Hugging Face model `openai-community/roberta-base-openai-detector` by default.
+The `/text` endpoint uses Hugging Face model `openai-community/roberta-large-openai-detector` by default.
+
+It returns **Real vs Fake** by picking the higher of the two probabilities (argmax).
 
 Optional configuration:
 
 ```bash
-set TEXT_MODEL_ID=openai-community/roberta-base-openai-detector
-set TEXT_THRESHOLD=0.5
+set TEXT_MODEL_ID=openai-community/roberta-large-openai-detector
+
+:: Aggregation over long-text chunks
+set TEXT_AGGREGATION=topk
+set TEXT_TOPK_FRACTION=0.30
 
 :: Advanced (chunking for long text)
 set TEXT_MAX_LENGTH=512
@@ -65,6 +77,10 @@ Optional configuration:
 ```bash
 set NEWS_MODEL_ID=facebook/bart-large-mnli
 set NEWS_THRESHOLD=0.5
+
+:: Aggregation over long-text chunks (default: topk)
+set NEWS_AGGREGATION=topk
+set NEWS_TOPK_FRACTION=0.33
 
 :: Advanced (chunking for long text)
 set NEWS_MAX_LENGTH=1024

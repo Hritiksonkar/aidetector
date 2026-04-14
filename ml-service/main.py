@@ -3,13 +3,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
+import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from typing import Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import AnyUrl, BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("ml-service")
@@ -40,16 +43,22 @@ MEDIA_THRESHOLD = _env_float("MEDIA_THRESHOLD", 0.50)
 VIDEO_MAX_FRAMES = _env_int("VIDEO_MAX_FRAMES", 12)
 VIDEO_FRAME_STRIDE = _env_int("VIDEO_FRAME_STRIDE", 15)  # sample every N frames if fps unknown
 MAX_DOWNLOAD_BYTES = _env_int("VIDEO_MAX_DOWNLOAD_BYTES", 50 * 1024 * 1024)  # 50MB
+VIDEO_MAX_HEIGHT = _env_int("VIDEO_MAX_HEIGHT", 480)
+VIDEO_FRAME_MAX_SIDE = _env_int("VIDEO_FRAME_MAX_SIDE", 720)
 
 # Deepfake video detection (frame-based)
 VIDEO_DEEPFAKE_MODEL_ID = _env("VIDEO_DEEPFAKE_MODEL_ID", "dima806/deepfake_vs_real_image_detection")
 VIDEO_DEEPFAKE_THRESHOLD = _env_float("VIDEO_DEEPFAKE_THRESHOLD", 0.50)
+VIDEO_AGGREGATION = _env("VIDEO_AGGREGATION", "topk")  # mean | max | topk
+VIDEO_TOPK_FRACTION = _env_float("VIDEO_TOPK_FRACTION", 0.33)
 
-TEXT_MODEL_ID = _env("TEXT_MODEL_ID", "openai-community/roberta-base-openai-detector")
+TEXT_MODEL_ID = _env("TEXT_MODEL_ID", "openai-community/roberta-large-openai-detector")
 TEXT_THRESHOLD = _env_float("TEXT_THRESHOLD", 0.50)
 TEXT_MAX_LENGTH = _env_int("TEXT_MAX_LENGTH", 512)
 TEXT_STRIDE = _env_int("TEXT_STRIDE", 128)
 TEXT_BATCH_SIZE = _env_int("TEXT_BATCH_SIZE", 8)
+TEXT_AGGREGATION = _env("TEXT_AGGREGATION", "topk")  # mean | max | topk
+TEXT_TOPK_FRACTION = _env_float("TEXT_TOPK_FRACTION", 0.30)
 
 NEWS_MODEL_ID = _env("NEWS_MODEL_ID", "facebook/bart-large-mnli")
 NEWS_THRESHOLD = _env_float("NEWS_THRESHOLD", 0.50)
@@ -58,9 +67,11 @@ NEWS_PREMISE_MAX_TOKENS = _env_int("NEWS_PREMISE_MAX_TOKENS", 768)
 NEWS_STRIDE = _env_int("NEWS_STRIDE", 128)
 NEWS_BATCH_SIZE = _env_int("NEWS_BATCH_SIZE", 4)
 NEWS_LOGIT_SCALE = _env_float("NEWS_LOGIT_SCALE", 5.0)
+NEWS_AGGREGATION = _env("NEWS_AGGREGATION", "topk")  # mean | max | topk
+NEWS_TOPK_FRACTION = _env_float("NEWS_TOPK_FRACTION", 0.33)
 
 
-app = FastAPI(title="Fake Content Detection ML Service", version="1.1.0")
+app = FastAPI(title="Fake Content Detection ML Service", version="1.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -76,7 +87,19 @@ class TextRequest(BaseModel):
 
 
 class VideoRequest(BaseModel):
-    videoUrl: AnyUrl
+    videoUrl: str = Field(min_length=3, max_length=2000)
+
+    @field_validator("videoUrl")
+    @classmethod
+    def _normalize_video_url(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not s:
+            raise ValueError("videoUrl is required")
+        if s.startswith("//"):
+            s = f"https:{s}"
+        if not re.match(r"^https?://", s, flags=re.IGNORECASE):
+            s = f"https://{s}"
+        return s
 
 
 class DetectResponse(BaseModel):
@@ -163,6 +186,28 @@ def _pick_fake_index(id2label: dict | None) -> int:
     return 1
 
 
+def _aggregate_probs(probs: list[float], mode: str, topk_fraction: float) -> float:
+    if not probs:
+        return 0.5
+
+    # Normalize and clamp.
+    clamped = [max(0.0, min(1.0, float(p))) for p in probs]
+    m = (mode or "mean").strip().lower()
+
+    if m == "max":
+        return float(max(clamped))
+
+    if m == "topk":
+        frac = max(0.05, min(1.0, float(topk_fraction)))
+        k = max(1, int(round(len(clamped) * frac)))
+        # Average the strongest fake signals.
+        top = sorted(clamped, reverse=True)[:k]
+        return float(sum(top) / max(1, len(top)))
+
+    # default: mean
+    return float(sum(clamped) / max(1, len(clamped)))
+
+
 async def _ensure_text_model_loaded() -> None:
     global _text_model, _text_tokenizer, _text_fake_index
 
@@ -173,7 +218,9 @@ async def _ensure_text_model_loaded() -> None:
         if _text_model is not None and _text_tokenizer is not None and _text_fake_index is not None:
             return
 
-        logger.info("Loading text detector model: %s", TEXT_MODEL_ID)
+        model_id = TEXT_MODEL_ID
+
+        logger.info("Loading text detector model: %s", model_id)
 
         try:
             from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -184,11 +231,12 @@ async def _ensure_text_model_loaded() -> None:
 
         def _load():
             try:
-                tok = AutoTokenizer.from_pretrained(TEXT_MODEL_ID, local_files_only=True)
-                model = AutoModelForSequenceClassification.from_pretrained(TEXT_MODEL_ID, local_files_only=True)
+                tok = AutoTokenizer.from_pretrained(model_id, local_files_only=True)
+                model = AutoModelForSequenceClassification.from_pretrained(model_id, local_files_only=True)
             except Exception:
-                tok = AutoTokenizer.from_pretrained(TEXT_MODEL_ID)
-                model = AutoModelForSequenceClassification.from_pretrained(TEXT_MODEL_ID)
+                tok = AutoTokenizer.from_pretrained(model_id)
+                model = AutoModelForSequenceClassification.from_pretrained(model_id)
+
             model.eval()
             fake_index = _pick_fake_index(getattr(model.config, "id2label", None))
             return model, tok, fake_index
@@ -314,7 +362,7 @@ def _score_text_fake_prob(text: str) -> float:
             chunk_fake = p[:, fake_idx].detach().cpu().tolist()
             probs.extend([float(x) for x in chunk_fake])
 
-    fake_prob = float(sum(probs) / max(1, len(probs)))
+    fake_prob = _aggregate_probs(probs, TEXT_AGGREGATION, TEXT_TOPK_FRACTION)
     return max(0.0, min(1.0, fake_prob))
 
 
@@ -344,7 +392,34 @@ def _chunk_text(tokenizer, text: str, max_tokens: int, stride: int) -> list[str]
     return chunks or [text]
 
 
-def _score_news_fake_prob(text: str) -> float:
+def _normalize_news_text(text: str) -> str:
+    if not text:
+        return ""
+
+    # Light cleanup to reduce boilerplate effects from pasted web pages.
+    t = text.strip()
+    t = re.sub(r"\s+", " ", t)
+    # Remove long runs of URLs which can confuse NLI heuristics.
+    t = re.sub(r"https?://\S+", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _sigmoid(x: float) -> float:
+    import math
+
+    try:
+        return 1.0 / (1.0 + math.exp(-float(x)))
+    except OverflowError:
+        return 0.0 if x < 0 else 1.0
+
+
+def _score_news_chunk_fake_prob(premise: str) -> float:
+    """Score a single premise chunk using the MNLI model.
+
+    Uses multiple hypotheses and takes the strongest signal.
+    """
+
     if (
         _news_model is None
         or _news_tokenizer is None
@@ -358,56 +433,201 @@ def _score_news_fake_prob(text: str) -> float:
     except Exception as e:  # pragma: no cover
         raise RuntimeError("torch is required for inference") from e
 
-    import math
+    premise = (premise or "").strip()
+    if not premise:
+        return 0.5
 
+    # IMPORTANT: MNLI is not a fact-checker. This is a heuristic NLI model.
+    # We try to reduce false "Real" by using several fake-news-like hypotheses
+    # and aggregating via max/top-k over chunks.
+    real_hypotheses = [
+        "This text is factual and verified news reporting.",
+        "This text accurately reports real events.",
+    ]
+    fake_hypotheses = [
+        "This text contains misinformation or false claims.",
+        "This text is a hoax or fake news.",
+        "This text is propaganda designed to mislead.",
+        "This text is sensational clickbait that exaggerates facts.",
+        "This text is satire or parody and not factual.",
+        "This text presents conspiracy theories as facts.",
+    ]
+
+    entail_idx = int(_news_entailment_index)
+    contra_idx = int(_news_contradiction_index)
+
+    all_h = real_hypotheses + fake_hypotheses
+    premises = [premise] * len(all_h)
+    batch = _news_tokenizer(
+        premises,
+        all_h,
+        padding=True,
+        truncation=True,
+        max_length=max(16, int(NEWS_MAX_LENGTH)),
+        return_tensors="pt",
+    )
+
+    with torch.no_grad():
+        outputs = _news_model(**batch)
+        logits = outputs.logits
+        p = torch.softmax(logits, dim=-1)
+
+    if entail_idx < 0 or entail_idx >= int(p.shape[-1]):
+        entail_idx = min(2, int(p.shape[-1]) - 1)
+    if contra_idx < 0 or contra_idx >= int(p.shape[-1]):
+        contra_idx = 0
+
+    # Stable heuristic per hypothesis: score = P(entailment) - P(contradiction)
+    scores = (p[:, entail_idx] - p[:, contra_idx]).detach().cpu().tolist()
+    scores = [float(s) for s in scores]
+
+    real_scores = scores[: len(real_hypotheses)]
+    fake_scores = scores[len(real_hypotheses) :]
+
+    s_real = max(real_scores) if real_scores else 0.0
+    s_fake = max(fake_scores) if fake_scores else 0.0
+    diff = (s_fake - s_real) * float(NEWS_LOGIT_SCALE)
+    return max(0.0, min(1.0, float(_sigmoid(diff))))
+
+
+def _score_news_fake_prob(text: str) -> float:
+    clean = _normalize_news_text(text)
     premise_chunks = _chunk_text(
         _news_tokenizer,
-        text,
+        clean,
         max_tokens=NEWS_PREMISE_MAX_TOKENS,
         stride=NEWS_STRIDE,
     )
 
-    # IMPORTANT: MNLI is not a fact-checker. This is a heuristic classifier that
-    # tends to pick up on *mismatch* between the writing and the hypothesis.
-    hypotheses = [
-        "This text is factual and verified news.",
-        "This text is misinformation, a hoax, or fake news.",
-    ]
-    entail_idx = int(_news_entailment_index)
-    contra_idx = int(_news_contradiction_index)
-
     probs: list[float] = []
-    with torch.no_grad():
-        for premise in premise_chunks:
-            premises = [premise, premise]
-            # Tokenize as sequence pairs (premise, hypothesis)
-            batch = _news_tokenizer(
-                premises,
-                hypotheses,
-                padding=True,
-                truncation=True,
-                max_length=max(16, int(NEWS_MAX_LENGTH)),
-                return_tensors="pt",
-            )
+    for premise in premise_chunks:
+        probs.append(_score_news_chunk_fake_prob(premise))
 
-            outputs = _news_model(**batch)
-            logits = outputs.logits
-            p = torch.softmax(logits, dim=-1)
-            if entail_idx < 0 or entail_idx >= int(p.shape[-1]):
-                entail_idx = min(2, int(p.shape[-1]) - 1)
-            if contra_idx < 0 or contra_idx >= int(p.shape[-1]):
-                contra_idx = 0
+    fake_prob = _aggregate_probs(probs, NEWS_AGGREGATION, NEWS_TOPK_FRACTION)
+    return max(0.0, min(1.0, float(fake_prob)))
 
-            # Use a more stable NLI heuristic:
-            # score(label) = P(entailment) - P(contradiction)
-            s_real = float((p[0, entail_idx] - p[0, contra_idx]).item())
-            s_fake = float((p[1, entail_idx] - p[1, contra_idx]).item())
-            diff = (s_fake - s_real) * float(NEWS_LOGIT_SCALE)
-            fake_prob = 1.0 / (1.0 + math.exp(-diff))
-            probs.append(max(0.0, min(1.0, float(fake_prob))))
 
-    fake_prob = float(sum(probs) / max(1, len(probs)))
-    return max(0.0, min(1.0, fake_prob))
+async def _download_video_direct(url: str, tmp_dir: str) -> str | None:
+    """Direct-download video if the URL is already a video file.
+
+    This avoids yt-dlp and reduces failures on plain .mp4 links.
+    """
+
+    try:
+        import httpx
+    except Exception:
+        return None
+
+    u = (url or "").strip()
+    if not u:
+        return None
+
+    def _looks_like_video_url() -> bool:
+        lower = u.lower()
+        return any(x in lower for x in [".mp4", ".m4v", ".mov", ".webm", ".mkv", ".avi"])
+
+    headers = {"User-Agent": "aidetector/1.2"}
+    timeout = httpx.Timeout(30.0, connect=30.0)
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout, headers=headers) as client:
+        head = None
+        try:
+            head = await client.head(u)
+        except Exception:
+            head = None
+
+        if head is not None:
+            try:
+                sc = int(head.status_code)
+            except Exception:
+                sc = 0
+            if sc in {401, 403}:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Video download blocked (private / login required). "
+                        "Please provide a public, direct video file URL (e.g. .mp4)."
+                    ),
+                )
+
+        content_type = ""
+        content_length = 0
+        if head is not None and hasattr(head, "headers"):
+            content_type = str(head.headers.get("content-type", ""))
+            try:
+                content_length = int(head.headers.get("content-length") or 0)
+            except Exception:
+                content_length = 0
+
+        if content_length and content_length > int(MAX_DOWNLOAD_BYTES):
+            raise HTTPException(status_code=413, detail="Video too large")
+
+        if not (
+            _looks_like_video_url()
+            or (content_type and content_type.lower().startswith("video/"))
+            or (content_type and "application/octet-stream" in content_type.lower())
+        ):
+            return None
+
+        out_path = os.path.join(tmp_dir, "direct.mp4")
+        total = 0
+        try:
+            async with client.stream("GET", u) as resp:
+                if int(resp.status_code) in {401, 403}:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=(
+                            "Video download blocked (private / login required). "
+                            "Please provide a public, direct video file URL (e.g. .mp4)."
+                        ),
+                    )
+                resp.raise_for_status()
+                with open(out_path, "wb") as f:
+                    async for chunk in resp.aiter_bytes():
+                        if not chunk:
+                            continue
+                        total += len(chunk)
+                        if total > int(MAX_DOWNLOAD_BYTES):
+                            raise HTTPException(status_code=413, detail="Video too large")
+                        f.write(chunk)
+        except HTTPException:
+            raise
+        except Exception:
+            return None
+
+        return out_path if os.path.isfile(out_path) else None
+
+
+def _find_ffmpeg() -> str | None:
+    return shutil.which("ffmpeg")
+
+
+def _transcode_to_mp4_with_ffmpeg(input_path: str, output_path: str) -> None:
+    ffmpeg = _find_ffmpeg()
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg not found")
+
+    # Re-encode video-only to maximize OpenCV compatibility.
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-i",
+        input_path,
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "28",
+        "-movflags",
+        "+faststart",
+        output_path,
+    ]
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    if p.returncode != 0:
+        stderr = (p.stderr or "").strip()
+        raise RuntimeError(f"ffmpeg transcode failed: {stderr[-800:]}")
 
 
 async def _ensure_clip_loaded() -> None:
@@ -597,67 +817,217 @@ def _score_deepfake_frame_fake_prob(image_pil) -> float:
 
 
 async def _download_video(url: str) -> str:
-    logger.info("Downloading video: %s", url)
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-    tmp_path = tmp.name
-    tmp.close()
+    """Download a remote video URL to a local temp file.
 
-    downloaded = 0
+    Uses yt-dlp so that common "share" URLs (YouTube/Instagram/etc.) work.
+    Returns the downloaded file path.
+    """
+
+    logger.info("Downloading video via yt-dlp: %s", url)
+
+    tmp_dir = tempfile.mkdtemp(prefix="aidetector-video-")
+    outtmpl = os.path.join(tmp_dir, "%(id)s.%(ext)s")
+
     try:
         try:
-            import httpx
+            from yt_dlp import YoutubeDL
         except Exception as e:  # pragma: no cover
-            raise HTTPException(status_code=500, detail="httpx is required to download video URLs") from e
+            raise HTTPException(status_code=500, detail="yt-dlp is required to download video URLs") from e
 
-        async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-            async with client.stream("GET", url) as resp:
-                resp.raise_for_status()
-                with open(tmp_path, "wb") as f:
-                    async for chunk in resp.aiter_bytes(chunk_size=1024 * 256):
-                        if not chunk:
+        direct = await _download_video_direct(url, tmp_dir)
+        if direct:
+            return direct
+
+        ffmpeg = _find_ffmpeg()
+
+        def _download() -> str:
+            def _strip_ansi(s: str) -> str:
+                return re.sub(r"\x1b\[[0-9;]*m", "", s)
+
+            def _is_private_or_login_error(msg: str) -> bool:
+                m = (msg or "").lower()
+                return any(
+                    s in m
+                    for s in [
+                        "private video",
+                        "this video is private",
+                        "members-only",
+                        "login required",
+                        "sign in to confirm",
+                        "sign in to view",
+                        "please sign in",
+                        "account is private",
+                        "requested content is not available",
+                        "http error 403",
+                        "403 forbidden",
+                        "status code: 403",
+                        "status 403",
+                        "authentication",
+                    ]
+                )
+
+            def _find_downloaded_file(download_root: str) -> str | None:
+                candidates: list[str] = []
+                for root, _, filenames in os.walk(download_root):
+                    for name in filenames:
+                        lower = name.lower()
+                        if lower.endswith(('.part', '.ytdl', '.json', '.webp', '.jpg', '.png')):
                             continue
-                        downloaded += len(chunk)
-                        if downloaded > MAX_DOWNLOAD_BYTES:
-                            raise HTTPException(status_code=413, detail="Video too large")
-                        f.write(chunk)
+                        full = os.path.join(root, name)
+                        if os.path.isfile(full):
+                            candidates.append(full)
 
-        return tmp_path
+                if not candidates:
+                    return None
+
+                # Pick the largest file (usually the actual media output).
+                candidates.sort(key=lambda p: os.path.getsize(p), reverse=True)
+                return candidates[0]
+
+            base_opts = {
+                "outtmpl": outtmpl,
+                "noplaylist": True,
+                "quiet": True,
+                "no_warnings": True,
+                "retries": 3,
+                "socket_timeout": 30,
+                "max_filesize": MAX_DOWNLOAD_BYTES,
+            }
+
+            if ffmpeg:
+                # If ffmpeg is present, allow merging (video+audio) and force mp4 output.
+                base_opts = {
+                    **base_opts,
+                    "merge_output_format": "mp4",
+                }
+
+            # Try a couple of format selectors.
+            # For YouTube/Insta we only need VIDEO frames, so prefer a VIDEO-ONLY stream.
+            # Prefer mp4 first, but allow other formats; we'll transcode later if needed.
+            # If ffmpeg is available, try bestvideo+bestaudio to maximize availability.
+            format_candidates: list[str] = []
+            if ffmpeg:
+                format_candidates.extend(
+                    [
+                        f"bestvideo[height<={VIDEO_MAX_HEIGHT}]+bestaudio/best[height<={VIDEO_MAX_HEIGHT}]",
+                        "bestvideo+bestaudio/best",
+                    ]
+                )
+            format_candidates.extend(
+                [
+                    f"bestvideo[ext=mp4][height<={VIDEO_MAX_HEIGHT}]/bestvideo[ext=mp4]/bestvideo",
+                    f"bv*[ext=mp4][height<={VIDEO_MAX_HEIGHT}]/bv*[ext=mp4]/bv*",
+                    "best[ext=mp4]/bestvideo[ext=mp4]/best",
+                    "best",
+                ]
+            )
+
+            last_error: Exception | None = None
+            for fmt in format_candidates:
+                ydl_opts = {**base_opts, "format": fmt}
+                try:
+                    with YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        if isinstance(info, dict) and "entries" in info and info.get("entries"):
+                            # Safety fallback if a playlist slips through.
+                            info = info["entries"][0]
+
+                        if isinstance(info, dict):
+                            req = info.get("requested_downloads")
+                            if isinstance(req, list) and len(req) > 0:
+                                fp = req[0].get("filepath")
+                                if fp and os.path.isfile(fp):
+                                    return str(fp)
+
+                            # Sometimes yt-dlp doesn't report a stable final path (e.g., HLS/native downloads).
+                            prepared = str(ydl.prepare_filename(info))
+                            if prepared and os.path.isfile(prepared):
+                                return prepared
+
+                            found = _find_downloaded_file(tmp_dir)
+                            if found:
+                                return found
+
+                            raise RuntimeError("yt-dlp finished but no output media file was found")
+
+                        raise RuntimeError("yt-dlp did not return a downloadable item")
+                except Exception as e:
+                    last_error = e
+                    msg = _strip_ansi(str(e)).lower()
+                    if _is_private_or_login_error(msg):
+                        raise HTTPException(
+                            status_code=403,
+                            detail=(
+                                "Video is private / login required, so it cannot be downloaded. "
+                                "Please provide a public, direct video file URL (e.g. .mp4)."
+                            ),
+                        )
+                    if "max-filesize" in msg or "larger than max-filesize" in msg:
+                        raise HTTPException(status_code=413, detail="Video too large")
+                    # If the requested format isn't available, retry with the next candidate.
+                    if "requested format is not available" in msg or "format is not available" in msg:
+                        continue
+                    raise
+
+            if last_error is not None:
+                raise RuntimeError(_strip_ansi(str(last_error)))
+            raise RuntimeError("yt-dlp failed to download")
+
+        video_path = await asyncio.to_thread(_download)
+        if not os.path.isfile(video_path):
+            raise HTTPException(status_code=400, detail="yt-dlp did not produce a video file")
+
+        return video_path
+
     except HTTPException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
     except Exception as e:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)
         raise HTTPException(status_code=400, detail=f"Failed to download video: {str(e)}") from e
 
 
 def _sample_frames(video_path: str, max_frames: int) -> list:
     import cv2
 
+    try:
+        import numpy as np
+    except Exception:
+        np = None
+
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise ValueError("Unable to open video")
 
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    stride = VIDEO_FRAME_STRIDE
-    if fps and fps > 0:
-        # approx 1 fps sampling
-        stride = max(1, int(round(fps)))
-
     frames: list = []
-    frame_idx = 0
-    while len(frames) < max_frames:
-        ok, frame_bgr = cap.read()
-        if not ok:
-            break
-        if frame_idx % stride == 0:
-            frames.append(frame_bgr)
-        frame_idx += 1
+
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    if total > 0 and np is not None:
+        # Evenly sample across the full duration.
+        count = min(int(max_frames), total)
+        idxs = np.linspace(0, total - 1, num=count, dtype=int).tolist()
+        # Ensure unique, sorted indices.
+        idxs = sorted(set(int(i) for i in idxs if i is not None))
+        for idx in idxs:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+            ok, frame_bgr = cap.read()
+            if ok:
+                frames.append(frame_bgr)
+    else:
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        stride = VIDEO_FRAME_STRIDE
+        if fps and fps > 0:
+            # approx 1 fps sampling
+            stride = max(1, int(round(fps)))
+
+        frame_idx = 0
+        while len(frames) < max_frames:
+            ok, frame_bgr = cap.read()
+            if not ok:
+                break
+            if frame_idx % stride == 0:
+                frames.append(frame_bgr)
+            frame_idx += 1
 
     cap.release()
     return frames
@@ -666,6 +1036,15 @@ def _sample_frames(video_path: str, max_frames: int) -> list:
 def _bgr_to_pil(frame_bgr):
     import cv2
     from PIL import Image
+
+    if VIDEO_FRAME_MAX_SIDE and VIDEO_FRAME_MAX_SIDE > 0:
+        h, w = frame_bgr.shape[:2]
+        max_side = max(h, w)
+        if max_side > int(VIDEO_FRAME_MAX_SIDE):
+            scale = float(VIDEO_FRAME_MAX_SIDE) / float(max_side)
+            new_w = max(1, int(round(w * scale)))
+            new_h = max(1, int(round(h * scale)))
+            frame_bgr = cv2.resize(frame_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
     rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
     return Image.fromarray(rgb)
@@ -678,8 +1057,12 @@ async def health() -> dict:
         "mediaMode": MEDIA_MODE,
         "mediaModelId": MEDIA_MODEL_ID,
         "videoDeepfakeModelId": VIDEO_DEEPFAKE_MODEL_ID,
+        "videoAggregation": VIDEO_AGGREGATION,
         "textModelId": TEXT_MODEL_ID,
+        "textAggregation": TEXT_AGGREGATION,
         "newsModelId": NEWS_MODEL_ID,
+        "newsAggregation": NEWS_AGGREGATION,
+        "newsTopkFraction": NEWS_TOPK_FRACTION,
     }
 
 
@@ -704,9 +1087,13 @@ async def detect_text(payload: TextRequest) -> DetectResponse:
         logger.exception("Text inference failed")
         raise HTTPException(status_code=500, detail=f"Text inference failed: {str(e)}") from e
 
-    if fake_prob >= TEXT_THRESHOLD:
-        return DetectResponse(result="Fake", confidence=float(fake_prob))
-    return DetectResponse(result="Real", confidence=float(1.0 - fake_prob))
+    real_prob = float(max(0.0, min(1.0, 1.0 - float(fake_prob))))
+    fake_prob = float(max(0.0, min(1.0, float(fake_prob))))
+
+    # Choose the label with the higher probability (argmax).
+    if fake_prob >= real_prob:
+        return DetectResponse(result="Fake", confidence=fake_prob)
+    return DetectResponse(result="Real", confidence=real_prob)
 
 
 @app.post("/news", response_model=DetectResponse)
@@ -730,9 +1117,12 @@ async def detect_news(payload: TextRequest) -> DetectResponse:
         logger.exception("News inference failed")
         raise HTTPException(status_code=500, detail=f"News inference failed: {str(e)}") from e
 
-    if fake_prob >= NEWS_THRESHOLD:
-        return DetectResponse(result="Fake", confidence=float(fake_prob))
-    return DetectResponse(result="Real", confidence=float(1.0 - fake_prob))
+    real_prob = float(max(0.0, min(1.0, 1.0 - float(fake_prob))))
+    fake_prob = float(max(0.0, min(1.0, float(fake_prob))))
+
+    if fake_prob >= real_prob:
+        return DetectResponse(result="Fake", confidence=fake_prob)
+    return DetectResponse(result="Real", confidence=real_prob)
 
 
 @app.post("/image", response_model=DetectResponse)
@@ -789,8 +1179,39 @@ async def detect_video(payload: VideoRequest) -> DetectResponse:
         ) from e
 
     video_path = await _download_video(str(payload.videoUrl))
+    video_dir = os.path.dirname(video_path)
     try:
-        frames = await asyncio.to_thread(_sample_frames, video_path, VIDEO_MAX_FRAMES)
+        try:
+            frames = await asyncio.to_thread(_sample_frames, video_path, VIDEO_MAX_FRAMES)
+        except HTTPException:
+            raise
+        except Exception as e:
+            # Retry once by transcoding to mp4 if ffmpeg is available (helps with webm/mkv codecs).
+            ffmpeg = _find_ffmpeg()
+            if ffmpeg:
+                try:
+                    transcoded = os.path.join(video_dir, "transcoded.mp4")
+                    await asyncio.to_thread(_transcode_to_mp4_with_ffmpeg, video_path, transcoded)
+                    frames = await asyncio.to_thread(_sample_frames, transcoded, VIDEO_MAX_FRAMES)
+                    video_path = transcoded
+                except Exception:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "Unable to read video frames from the provided URL (codec/container issue). "
+                            "Please provide a direct, publicly accessible .mp4 file URL."
+                        ),
+                    ) from e
+            else:
+                # Common case: user provides a non-video URL (e.g., YouTube page) or an unsupported format/codec.
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Unable to read video frames from the provided URL. "
+                        "Please provide a direct, publicly accessible .mp4 file URL. "
+                        "(Tip: installing ffmpeg can improve compatibility for non-mp4 formats.)"
+                    ),
+                ) from e
         if not frames:
             raise HTTPException(status_code=400, detail="No frames could be read from video")
 
@@ -810,14 +1231,17 @@ async def detect_video(payload: VideoRequest) -> DetectResponse:
         if not probs:
             raise HTTPException(status_code=400, detail="No usable frames found for deepfake analysis")
 
-        fake_prob = float(sum(probs) / max(1, len(probs)))
-        fake_prob = max(0.0, min(1.0, fake_prob))
+        fake_prob = _aggregate_probs([float(p) for p in probs], VIDEO_AGGREGATION, VIDEO_TOPK_FRACTION)
         if fake_prob >= VIDEO_DEEPFAKE_THRESHOLD:
             return DetectResponse(result="Fake", confidence=fake_prob)
         return DetectResponse(result="Real", confidence=1.0 - fake_prob)
     finally:
         try:
             os.unlink(video_path)
+        except OSError:
+            pass
+        try:
+            shutil.rmtree(video_dir, ignore_errors=True)
         except OSError:
             pass
 
