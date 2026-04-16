@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Hero from '../components/Hero.jsx';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { FiFileText, FiImage, FiLayers, FiShield, FiUploadCloud, FiVideo, FiZap } from 'react-icons/fi';
+import { FiFileText, FiImage, FiUploadCloud, FiVideo } from 'react-icons/fi';
 
 import Tabs from '../components/Tabs.jsx';
 import Loader from '../components/Loader.jsx';
@@ -10,14 +9,68 @@ import ResultCard from '../components/ResultCard.jsx';
 import { detectImage, detectNews, detectText, detectVideo } from '../services/api.js';
 import { addHistoryRecord, clearHistory, loadHistory } from '../services/history.js';
 
-function Feature({ icon, title, desc }) {
+function formatCompactNumber(value) {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n)) return '0';
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+    if (n >= 10_000) return `${Math.round(n / 1_000)}k`;
+    return String(Math.round(n));
+}
+
+function Ring({ value, label, hint, toneClassName }) {
+    const clamped = Math.max(0, Math.min(100, Number(value || 0)));
+    const r = 18;
+    const c = 2 * Math.PI * r;
+    const dash = (clamped / 100) * c;
+    const rest = c - dash;
+
     return (
-        <div className="glass rounded-3xl p-5">
-            <div className="inline-flex items-center justify-center rounded-2xl border border-white/10 bg-white/5 p-3">
-                {icon}
+        <div className="glass flex items-center justify-between gap-4 rounded-2xl p-4">
+            <div>
+                <div className="text-xs text-slate-200/60">{label}</div>
+                <div className="mt-1 text-xl font-black">{Math.round(clamped)}%</div>
+                {hint ? <div className="mt-1 text-xs text-slate-200/60">{hint}</div> : null}
             </div>
-            <div className="mt-4 text-lg font-bold">{title}</div>
-            <div className="mt-2 text-sm text-slate-200/70">{desc}</div>
+            <svg viewBox="0 0 44 44" className={toneClassName || 'text-indigo-200'} aria-hidden="true">
+                <circle cx="22" cy="22" r={r} fill="none" stroke="rgba(255,255,255,0.10)" strokeWidth="6" />
+                <circle
+                    cx="22"
+                    cy="22"
+                    r={r}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeDasharray={`${dash} ${rest}`}
+                    transform="rotate(-90 22 22)"
+                    opacity="0.95"
+                />
+            </svg>
+        </div>
+    );
+}
+
+function StackedBar({ leftLabel, rightLabel, leftValue, rightValue }) {
+    const total = Math.max(1, Number(leftValue || 0) + Number(rightValue || 0));
+    const leftPct = Math.round((Number(leftValue || 0) / total) * 100);
+    const rightPct = 100 - leftPct;
+    return (
+        <div className="glass rounded-2xl p-4">
+            <div className="flex items-center justify-between gap-3 text-xs">
+                <div className="font-semibold text-slate-200/70">{leftLabel}</div>
+                <div className="font-semibold text-slate-100">{leftPct}%</div>
+            </div>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                <div className="h-full bg-gradient-to-r from-rose-300/80 to-rose-200" style={{ width: `${leftPct}%` }} />
+            </div>
+
+            <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+                <div className="font-semibold text-slate-200/70">{rightLabel}</div>
+                <div className="font-semibold text-slate-100">{rightPct}%</div>
+            </div>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                <div className="h-full bg-gradient-to-r from-emerald-300/70 to-emerald-200" style={{ width: `${rightPct}%` }} />
+            </div>
         </div>
     );
 }
@@ -171,8 +224,8 @@ export default function Home() {
     }, [history]);
 
     const spark = useMemo(() => {
-        const w = 300;
-        const h = 90;
+        const w = 620;
+        const h = 220;
         const pts = trend.map((p, idx) => {
             const x = trend.length <= 1 ? w / 2 : (idx / (trend.length - 1)) * w;
             const y = h - (p.confidence / 100) * h;
@@ -182,169 +235,31 @@ export default function Home() {
         return { w, h, pts, d };
     }, [trend]);
 
+    const split = useMemo(() => {
+        const items = Array.isArray(history) ? history : [];
+
+        const textBucket = { real: 0, fake: 0 };
+        const mediaBucket = { real: 0, fake: 0 };
+
+        for (const x of items) {
+            const isMedia = x.type === 'image' || x.type === 'video';
+            const target = isMedia ? mediaBucket : textBucket;
+            if (x.result === 'Real') target.real += 1;
+            else target.fake += 1;
+        }
+
+        return { textBucket, mediaBucket };
+    }, [history]);
+
     return (
-        <div className="space-y-8 pb-4">
-            <Hero />
-
-            <motion.section
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.35, delay: 0.05 }}
-                className="grid gap-4 sm:grid-cols-3"
-            >
-                <Feature
-                    icon={<FiZap className="text-indigo-200" />}
-                    title="Fast"
-                    desc="Async API calls with smooth, responsive UI transitions."
-                />
-                <Feature
-                    icon={<FiLayers className="text-pink-200" />}
-                    title="Multi-modal"
-                    desc="Analyze text, images, and video URLs in one dashboard."
-                />
-                <Feature
-                    icon={<FiShield className="text-emerald-200" />}
-                    title="Reliable"
-                    desc="Production-ready patterns: validation, error handling, and feedback toasts."
-                />
-            </motion.section>
-
-            <motion.section
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.35, delay: 0.1 }}
-                className="grid gap-4 lg:grid-cols-3"
-            >
-                <div className="glass rounded-3xl p-5 lg:col-span-2">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                            <div className="text-lg font-black tracking-tight">Quick Analyze</div>
-                            <div className="mt-1 text-sm text-slate-200/70">One simple form for Text, News, Image, and Video.</div>
-                        </div>
+        <div className="space-y-4 pb-6">
+            <div className="glass rounded-3xl p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <div className="text-lg font-black tracking-tight">AI Content Detection Dashboard</div>
+                        <div className="mt-1 text-xs text-slate-200/60">Top • Summary</div>
                     </div>
-
-                    <div className="mt-4">
-                        <Tabs
-                            tabs={tabs}
-                            activeKey={active}
-                            onChange={(k) => {
-                                setActive(k);
-                                resetResult();
-                            }}
-                        />
-                    </div>
-
-                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                        <div className="space-y-3">
-                            {(active === TAB_TEXT || active === TAB_NEWS) && (
-                                <textarea
-                                    className="input min-h-[170px] resize-none"
-                                    placeholder={active === TAB_NEWS ? 'Paste news/article text to analyze...' : 'Paste text to analyze...'}
-                                    value={text}
-                                    onChange={(e) => setText(e.target.value)}
-                                />
-                            )}
-
-                            {active === TAB_VIDEO && (
-                                <div>
-                                    <input
-                                        className="input"
-                                        placeholder="Paste a YouTube/Instagram/video URL"
-                                        value={videoUrl}
-                                        onChange={(e) => setVideoUrl(e.target.value)}
-                                    />
-                                    <div className="mt-2 text-xs text-slate-200/60">
-                                        Social media links are supported (YouTube/Instagram). If the video is private or requires login,
-                                        you’ll see a clear error message.
-                                    </div>
-                                </div>
-                            )}
-
-                            {active === TAB_IMAGE && (
-                                <div className="space-y-3">
-                                    <input
-                                        ref={fileRef}
-                                        type="file"
-                                        accept="image/*"
-                                        className="hidden"
-                                        onChange={(e) => handlePickFile(e.target.files?.[0])}
-                                    />
-                                    <div className="glass grid min-h-[170px] place-items-center rounded-3xl border border-dashed border-white/15 bg-white/5 p-5">
-                                        <div className="flex flex-col items-center gap-3 text-center">
-                                            <div className="glass rounded-2xl p-3">
-                                                <FiUploadCloud className="text-xl text-slate-100/80" />
-                                            </div>
-                                            <div>
-                                                <div className="text-sm font-semibold">Upload an image</div>
-                                                <div className="mt-1 text-xs text-slate-200/60">PNG/JPG works best</div>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                className="glass rounded-xl px-4 py-2 text-sm font-semibold hover:bg-white/10"
-                                                onClick={() => fileRef.current?.click()}
-                                            >
-                                                Choose File
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            <motion.button
-                                whileHover={{ scale: loading ? 1 : 1.02 }}
-                                whileTap={{ scale: loading ? 1 : 0.98 }}
-                                disabled={loading}
-                                onClick={onAnalyze}
-                                className="btn-grad w-full animate-shimmer"
-                                type="button"
-                            >
-                                {loading ? <Loader /> : 'Analyze'}
-                            </motion.button>
-                        </div>
-
-                        <div className="space-y-3">
-                            {result ? (
-                                <ResultCard
-                                    title={
-                                        active === TAB_TEXT
-                                            ? 'AI Text Detection Result'
-                                            : active === TAB_NEWS
-                                                ? 'News Detection Result'
-                                                : active === TAB_IMAGE
-                                                    ? 'Image Detection Result'
-                                                    : 'Video Detection Result'
-                                    }
-                                    result={result}
-                                    confidence={confidence}
-                                />
-                            ) : (
-                                <div className="glass grid min-h-[220px] place-items-center rounded-3xl p-5 text-center">
-                                    <div>
-                                        <div className="text-lg font-bold">No result yet</div>
-                                        <div className="mt-2 text-sm text-slate-200/70">Run an analysis to see Real/Fake + confidence.</div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {active === TAB_IMAGE && imagePreview && (
-                                <motion.div
-                                    initial={{ opacity: 0, y: 10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="glass overflow-hidden rounded-3xl"
-                                >
-                                    <img src={imagePreview} alt="Preview" className="h-44 w-full object-cover" />
-                                </motion.div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="glass rounded-3xl p-5">
-                    <div className="flex items-start justify-between gap-3">
-                        <div>
-                            <div className="text-sm font-semibold text-slate-200/70">Insights</div>
-                            <div className="mt-1 text-xs text-slate-200/60">Charts are based on your recent scans (local only).</div>
-                        </div>
+                    <div className="flex items-center gap-2">
                         <button
                             type="button"
                             className="glass rounded-xl px-3 py-2 text-xs font-semibold hover:bg-white/10"
@@ -354,106 +269,55 @@ export default function Home() {
                             }}
                             disabled={history.length === 0}
                         >
-                            Clear
+                            Clear history
                         </button>
                     </div>
+                </div>
+            </div>
 
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                        <div className="glass rounded-2xl p-4">
-                            <div className="text-xs text-slate-200/60">Total scans</div>
-                            <div className="mt-1 text-2xl font-black">{stats.total}</div>
-                        </div>
-                        <div className="glass rounded-2xl p-4">
-                            <div className="text-xs text-slate-200/60">Fake rate</div>
-                            <div className="mt-1 text-2xl font-black">{stats.fakeRate}%</div>
-                        </div>
-                        <div className="glass rounded-2xl p-4">
-                            <div className="text-xs text-slate-200/60">Avg confidence</div>
-                            <div className="mt-1 text-2xl font-black">{stats.avgConfidence}%</div>
-                        </div>
-                        <div className="glass rounded-2xl p-4">
-                            <div className="text-xs text-slate-200/60">Real vs Fake</div>
-                            <div className="mt-1 flex items-center gap-3 text-sm font-semibold">
-                                <span className="text-emerald-200">Real: {stats.real}</span>
-                                <span className="text-rose-200">Fake: {stats.fake}</span>
-                            </div>
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="glass rounded-3xl p-4">
+                    <div className="text-xs text-slate-200/60">Total analyses</div>
+                    <div className="mt-1 text-2xl font-black">{formatCompactNumber(stats.total)}</div>
+                </div>
+                <div className="glass rounded-3xl p-4">
+                    <div className="text-xs text-slate-200/60">Fake detections</div>
+                    <div className="mt-1 text-2xl font-black text-rose-200">{formatCompactNumber(stats.fake)}</div>
+                </div>
+                <div className="glass rounded-3xl p-4">
+                    <div className="text-xs text-slate-200/60">Real detections</div>
+                    <div className="mt-1 text-2xl font-black text-emerald-200">{formatCompactNumber(stats.real)}</div>
+                </div>
+                <div className="glass rounded-3xl p-4">
+                    <div className="text-xs text-slate-200/60">Average confidence</div>
+                    <div className="mt-1 text-2xl font-black">{Math.round(stats.avgConfidence)}%</div>
+                </div>
+            </section>
+
+            <motion.section
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, delay: 0.05 }}
+                className="grid gap-4 lg:grid-cols-12"
+            >
+                <aside className="space-y-4 lg:col-span-3">
+                    <div className="glass rounded-3xl p-5">
+                        <div className="text-sm font-semibold text-slate-200/70">Detection Breakdown</div>
+                        <div className="mt-4 space-y-3">
+                            <Ring value={stats.fakeRate} label="Fake" hint="Overall fake rate" toneClassName="text-rose-200" />
+                            <Ring value={100 - stats.fakeRate} label="Real" hint="Overall real rate" toneClassName="text-emerald-200" />
+                            <Ring value={stats.avgConfidence} label="Confidence" hint="Average confidence" toneClassName="text-indigo-200" />
                         </div>
                     </div>
 
-                    <div className="mt-5">
-                        <div className="text-xs font-semibold text-slate-200/70">Confidence trend</div>
-                        <div className="mt-2 glass rounded-2xl p-3">
-                            {spark.pts.length === 0 ? (
-                                <div className="py-6 text-center text-sm text-slate-200/60">No scans yet</div>
-                            ) : (
-                                <div>
-                                    <svg viewBox={`0 0 ${spark.w} ${spark.h}`} className="h-24 w-full text-indigo-200">
-                                        <polyline
-                                            fill="none"
-                                            stroke="currentColor"
-                                            strokeWidth="3"
-                                            strokeLinejoin="round"
-                                            strokeLinecap="round"
-                                            points={spark.d}
-                                            opacity="0.9"
-                                        />
-                                        {spark.pts.map((p) => (
-                                            <circle
-                                                key={p.i}
-                                                cx={p.x}
-                                                cy={p.y}
-                                                r={4}
-                                                fill="currentColor"
-                                                opacity={hoverPoint?.i === p.i ? 1 : 0.55}
-                                                onMouseEnter={() => setHoverPoint(p)}
-                                                onMouseLeave={() => setHoverPoint(null)}
-                                            />
-                                        ))}
-                                    </svg>
-                                    <div className="mt-2 flex items-center justify-between text-xs text-slate-200/60">
-                                        <span>Last {spark.pts.length} scans</span>
-                                        <span className="text-slate-100 font-semibold">
-                                            {hoverPoint ? `${hoverPoint.confidence}% (${hoverPoint.result})` : 'Hover a point'}
-                                        </span>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="mt-5">
-                        <div className="text-xs font-semibold text-slate-200/70">By type</div>
-                        <div className="mt-2 space-y-2">
-                            {byType.length === 0 && <div className="text-sm text-slate-200/60">No scans yet</div>}
-                            {byType.map((row) => {
-                                const max = Math.max(1, ...byType.map((r) => r.count));
-                                const pct = Math.round((row.count / max) * 100);
-                                return (
-                                    <div key={row.type} className="glass rounded-2xl p-3">
-                                        <div className="flex items-center justify-between text-xs">
-                                            <span className="font-semibold text-slate-200/70">{String(row.type).toUpperCase()}</span>
-                                            <span className="font-semibold text-slate-100">{row.count}</span>
-                                        </div>
-                                        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
-                                            <div
-                                                className="h-full rounded-full bg-gradient-to-r from-indigo-400 to-pink-200"
-                                                style={{ width: `${pct}%` }}
-                                            />
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    <div className="mt-5">
+                    <div className="glass rounded-3xl p-5">
                         <div className="flex items-center justify-between gap-3">
-                            <div className="text-xs font-semibold text-slate-200/70">Recent scans</div>
-                            <div className="text-xs text-slate-200/60">Latest 6</div>
+                            <div className="text-sm font-semibold text-slate-200/70">Recent Activity</div>
+                            <div className="text-xs text-slate-200/60">Latest 8</div>
                         </div>
-                        <div className="mt-2 space-y-2">
+                        <div className="mt-3 space-y-2 max-h-72 overflow-y-auto pr-1">
                             {history.length === 0 && <div className="text-sm text-slate-200/60">Run analyses to populate history.</div>}
-                            {history.slice(0, 6).map((x) => {
+                            {history.slice(0, 8).map((x) => {
                                 const badge =
                                     x.result === 'Real'
                                         ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/20'
@@ -476,7 +340,263 @@ export default function Home() {
                             })}
                         </div>
                     </div>
-                </div>
+                </aside>
+
+                <main className="space-y-4 lg:col-span-6">
+                    <div className="glass rounded-3xl p-5">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <div className="text-sm font-semibold text-slate-200/70">Detection Console</div>
+                                <div className="mt-1 text-xs text-slate-200/60">Analyze text, news, image, and video</div>
+                            </div>
+                        </div>
+
+                        <div className="mt-4">
+                            <Tabs
+                                tabs={tabs}
+                                activeKey={active}
+                                onChange={(k) => {
+                                    setActive(k);
+                                    resetResult();
+                                }}
+                            />
+                        </div>
+
+                        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                            <div className="space-y-3">
+                                {(active === TAB_TEXT || active === TAB_NEWS) && (
+                                    <textarea
+                                        className="input min-h-[170px] resize-none"
+                                        placeholder={active === TAB_NEWS ? 'Paste news/article text to analyze...' : 'Paste text to analyze...'}
+                                        value={text}
+                                        onChange={(e) => setText(e.target.value)}
+                                    />
+                                )}
+
+                                {active === TAB_VIDEO && (
+                                    <div>
+                                        <input
+                                            className="input"
+                                            placeholder="Paste a YouTube/Instagram/video URL"
+                                            value={videoUrl}
+                                            onChange={(e) => setVideoUrl(e.target.value)}
+                                        />
+                                        <div className="mt-2 text-xs text-slate-200/60">
+                                            Social media links are supported (YouTube/Instagram). If the video is private or requires login,
+                                            you’ll see a clear error message.
+                                        </div>
+                                    </div>
+                                )}
+
+                                {active === TAB_IMAGE && (
+                                    <div className="space-y-3">
+                                        <input
+                                            ref={fileRef}
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={(e) => handlePickFile(e.target.files?.[0])}
+                                        />
+                                        <div className="glass grid min-h-[170px] place-items-center rounded-3xl border border-dashed border-white/15 bg-white/5 p-5">
+                                            <div className="flex flex-col items-center gap-3 text-center">
+                                                <div className="glass rounded-2xl p-3">
+                                                    <FiUploadCloud className="text-xl text-slate-100/80" />
+                                                </div>
+                                                <div>
+                                                    <div className="text-sm font-semibold">Upload an image</div>
+                                                    <div className="mt-1 text-xs text-slate-200/60">PNG/JPG works best</div>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    className="glass rounded-xl px-4 py-2 text-sm font-semibold hover:bg-white/10"
+                                                    onClick={() => fileRef.current?.click()}
+                                                >
+                                                    Choose File
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <motion.button
+                                    whileHover={{ scale: loading ? 1 : 1.02 }}
+                                    whileTap={{ scale: loading ? 1 : 0.98 }}
+                                    disabled={loading}
+                                    onClick={onAnalyze}
+                                    className="btn-grad w-full animate-shimmer"
+                                    type="button"
+                                >
+                                    {loading ? <Loader /> : 'Analyze'}
+                                </motion.button>
+                            </div>
+
+                            <div className="space-y-3">
+                                {result ? (
+                                    <ResultCard
+                                        title={
+                                            active === TAB_TEXT
+                                                ? 'AI Text Detection Result'
+                                                : active === TAB_NEWS
+                                                    ? 'News Detection Result'
+                                                    : active === TAB_IMAGE
+                                                        ? 'Image Detection Result'
+                                                        : 'Video Detection Result'
+                                        }
+                                        result={result}
+                                        confidence={confidence}
+                                    />
+                                ) : (
+                                    <div className="glass grid min-h-[220px] place-items-center rounded-3xl p-5 text-center">
+                                        <div>
+                                            <div className="text-lg font-bold">No result yet</div>
+                                            <div className="mt-2 text-sm text-slate-200/70">Run an analysis to see Real/Fake + confidence.</div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {active === TAB_IMAGE && imagePreview && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="glass overflow-hidden rounded-3xl"
+                                    >
+                                        <img src={imagePreview} alt="Preview" className="h-44 w-full object-cover" />
+                                    </motion.div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="glass rounded-3xl p-5">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <div className="text-sm font-semibold text-slate-200/70">Detection Trends</div>
+                                <div className="mt-1 text-xs text-slate-200/60">Confidence trend (last {spark.pts.length} scans)</div>
+                            </div>
+                            <div className="text-xs text-slate-200/60">{hoverPoint ? `${hoverPoint.confidence}% (${hoverPoint.result})` : 'Hover a point'}</div>
+                        </div>
+
+                        <div className="mt-4 glass rounded-2xl p-3">
+                            {spark.pts.length === 0 ? (
+                                <div className="py-12 text-center text-sm text-slate-200/60">No scans yet</div>
+                            ) : (
+                                <svg viewBox={`0 0 ${spark.w} ${spark.h}`} className="h-48 w-full text-indigo-200">
+                                    <polyline
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="3"
+                                        strokeLinejoin="round"
+                                        strokeLinecap="round"
+                                        points={spark.d}
+                                        opacity="0.9"
+                                    />
+                                    {spark.pts.map((p) => (
+                                        <circle
+                                            key={p.i}
+                                            cx={p.x}
+                                            cy={p.y}
+                                            r={5}
+                                            fill="currentColor"
+                                            opacity={hoverPoint?.i === p.i ? 1 : 0.55}
+                                            onMouseEnter={() => setHoverPoint(p)}
+                                            onMouseLeave={() => setHoverPoint(null)}
+                                        />
+                                    ))}
+                                </svg>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <div className="glass rounded-3xl p-5">
+                            <div className="text-sm font-semibold text-slate-200/70">Text Analysis Results</div>
+                            <div className="mt-3">
+                                <StackedBar
+                                    leftLabel="AI Generated"
+                                    rightLabel="Human Written"
+                                    leftValue={split.textBucket.fake}
+                                    rightValue={split.textBucket.real}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="glass rounded-3xl p-5">
+                            <div className="text-sm font-semibold text-slate-200/70">Image + Video Results</div>
+                            <div className="mt-3">
+                                <StackedBar
+                                    leftLabel="Fake"
+                                    rightLabel="Real"
+                                    leftValue={split.mediaBucket.fake}
+                                    rightValue={split.mediaBucket.real}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </main>
+
+                <aside className="space-y-4 lg:col-span-3">
+                    <div className="glass rounded-3xl p-5">
+                        <div className="text-sm font-semibold text-slate-200/70">Top Sources</div>
+                        <div className="mt-3 space-y-2 text-sm">
+                            <div className="glass flex items-center justify-between rounded-2xl px-4 py-3">
+                                <span className="text-slate-200/80">Social Media</span>
+                                <span className="text-xs text-slate-200/60">—</span>
+                            </div>
+                            <div className="glass flex items-center justify-between rounded-2xl px-4 py-3">
+                                <span className="text-slate-200/80">News Sites</span>
+                                <span className="text-xs text-slate-200/60">—</span>
+                            </div>
+                            <div className="glass flex items-center justify-between rounded-2xl px-4 py-3">
+                                <span className="text-slate-200/80">User Uploads</span>
+                                <span className="text-xs text-slate-200/60">—</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="glass rounded-3xl p-5">
+                        <div className="text-sm font-semibold text-slate-200/70">Processing Time</div>
+                        <div className="mt-3 space-y-2 text-sm">
+                            <div className="glass flex items-center justify-between rounded-2xl px-4 py-3">
+                                <span className="text-slate-200/80">Avg. Text Analysis</span>
+                                <span className="text-slate-100 font-semibold">—</span>
+                            </div>
+                            <div className="glass flex items-center justify-between rounded-2xl px-4 py-3">
+                                <span className="text-slate-200/80">Avg. Image Scan</span>
+                                <span className="text-slate-100 font-semibold">—</span>
+                            </div>
+                            <div className="glass flex items-center justify-between rounded-2xl px-4 py-3">
+                                <span className="text-slate-200/80">Avg. Video Scan</span>
+                                <span className="text-slate-100 font-semibold">—</span>
+                            </div>
+                        </div>
+                        <div className="mt-3 text-xs text-slate-200/60">(Timing metrics can be added later if you want.)</div>
+                    </div>
+
+                    <div className="glass rounded-3xl p-5">
+                        <div className="text-sm font-semibold text-slate-200/70">By type</div>
+                        <div className="mt-3 space-y-2 max-h-56 overflow-y-auto pr-1">
+                            {byType.length === 0 && <div className="text-sm text-slate-200/60">No scans yet</div>}
+                            {byType.map((row) => {
+                                const max = Math.max(1, ...byType.map((r) => r.count));
+                                const pct = Math.round((row.count / max) * 100);
+                                return (
+                                    <div key={row.type} className="glass rounded-2xl p-3">
+                                        <div className="flex items-center justify-between text-xs">
+                                            <span className="font-semibold text-slate-200/70">{String(row.type).toUpperCase()}</span>
+                                            <span className="font-semibold text-slate-100">{row.count}</span>
+                                        </div>
+                                        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
+                                            <div
+                                                className="h-full rounded-full bg-gradient-to-r from-indigo-400 to-pink-200"
+                                                style={{ width: `${pct}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </aside>
             </motion.section>
         </div>
     );
