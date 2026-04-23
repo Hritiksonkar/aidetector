@@ -33,6 +33,43 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, _next) => {
+    if (err?.name === 'MulterError') {
+        const code = err?.code;
+        const limitBytes = config.maxImageSizeBytes;
+        const limitMb = Math.max(0.1, limitBytes / (1024 * 1024));
+
+        const isTooLarge = code === 'LIMIT_FILE_SIZE';
+        const resolvedStatus = isTooLarge ? 413 : 400;
+
+        console.log('[error]', {
+            status: resolvedStatus,
+            message: err?.message,
+            stack: config.nodeEnv === 'production' ? undefined : err?.stack,
+            multerCode: code,
+            limitBytes
+        });
+
+        if (isTooLarge) {
+            return res.status(413).json({
+                error: 'Payload Too Large',
+                message: `Image file is too large. Max allowed size is ~${limitMb.toFixed(1)}MB.`,
+                details: [
+                    {
+                        code,
+                        maxBytes: limitBytes,
+                        hint: 'Increase MAX_IMAGE_SIZE_BYTES in backend/.env (and restart the backend) if needed.'
+                    }
+                ]
+            });
+        }
+
+        return res.status(400).json({
+            error: 'Bad Request',
+            message: 'Invalid upload',
+            details: [{ message: err.message, code }]
+        });
+    }
+
     const status = err?.statusCode || err?.status || 500;
 
     const axiosStatus = err?.response?.status;
@@ -45,14 +82,6 @@ app.use((err, req, res, _next) => {
         axiosStatus,
         axiosData
     });
-
-    if (err?.name === 'MulterError') {
-        return res.status(400).json({
-            error: 'Bad Request',
-            message: 'Invalid upload',
-            details: [{ message: err.message, code: err.code }]
-        });
-    }
 
     const networkCode = err?.code || err?.cause?.code;
     const timeoutCodes = new Set(['ECONNABORTED']);

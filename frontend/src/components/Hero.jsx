@@ -7,8 +7,8 @@ export default function Hero() {
         <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 px-6 py-12 backdrop-blur-xl sm:px-10 sm:py-16">
             <div className="pointer-events-none absolute inset-0 opacity-60">
                 <div className="absolute -left-24 -top-24 h-72 w-72 animate-floaty rounded-full bg-indigo-500/25 blur-3xl" />
-                <div className="absolute -right-24 -top-24 h-72 w-72 animate-floaty rounded-full bg-pink-500/20 blur-3xl [animation-delay:0.8s]" />
-                <div className="absolute bottom-[-7rem] left-1/2 h-80 w-80 -translate-x-1/2 animate-floaty rounded-full bg-emerald-500/15 blur-3xl [animation-delay:1.6s]" />
+                <div className="absolute -right-24 -top-24 h-72 w-72 animate-floaty rounded-full bg-purple-500/20 blur-3xl [animation-delay:0.8s]" />
+                <div className="absolute bottom-[-7rem] left-1/2 h-80 w-80 -translate-x-1/2 animate-floaty rounded-full bg-sky-500/15 blur-3xl [animation-delay:1.6s]" />
             </div>
 
             <div className="relative">
@@ -19,7 +19,7 @@ export default function Hero() {
                     className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-100/90"
                 >
                     <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                    Real-time detection API ready
+                    Enterprise-ready AI verification
                 </motion.p>
 
                 <motion.h1
@@ -29,7 +29,7 @@ export default function Hero() {
                     className="mt-6 text-4xl font-black tracking-tight sm:text-5xl"
                 >
                     <span className="bg-gradient-to-r from-indigo-300 via-pink-300 to-emerald-200 bg-clip-text text-transparent">
-                        AI Fake Content Detector
+                        TruthLens AI
                     </span>
                 </motion.h1>
 
@@ -39,7 +39,17 @@ export default function Hero() {
                     transition={{ duration: 0.45, delay: 0.12 }}
                     className="mt-4 max-w-2xl text-base text-slate-200/80 sm:text-lg"
                 >
-                    Detect Fake Images, Videos & Text in Seconds
+                    AI-Powered Fake Content Detection & Trust Verification Platform
+                </motion.p>
+
+                <motion.p
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.45, delay: 0.16 }}
+                    className="mt-3 max-w-2xl text-sm text-slate-200/65 sm:text-base"
+                >
+                    Detect fake news, AI-generated text, manipulated images, and deepfake videos with trust scores and
+                    explainable AI analysis.
                 </motion.p>
 
                 <motion.div
@@ -55,7 +65,7 @@ export default function Hero() {
                     </motion.div>
 
                     <div className="glass rounded-2xl px-4 py-3 text-sm text-slate-200/75">
-                        Works with: Text • Images • Video URLs
+                        Coverage: Text • Images • Video URLs
                     </div>
                 </motion.div>
             </div>

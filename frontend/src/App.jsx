@@ -23,8 +23,8 @@ function Footer() {
         <footer className="mx-auto w-full max-w-6xl px-4 pb-8 pt-10">
             <div className="glass rounded-2xl px-5 py-4 text-sm text-slate-200/80">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <span>© {new Date().getFullYear()} AI Fake Content Detector</span>
-                    <span className="text-slate-200/60">Built for demo + production scaffolding</span>
+                    <span>© {new Date().getFullYear()} TruthLens AI</span>
+                    <span className="text-slate-200/60">AI verification • enterprise-ready UI</span>
                 </div>
             </div>
         </footer>
@@ -33,11 +33,12 @@ function Footer() {
 
 export default function App() {
     const location = useLocation();
+    const showFooter = location.pathname === '/';
 
     return (
         <div className="app-bg min-h-screen">
             <Navbar />
-            <main className="mx-auto w-full max-w-6xl px-4 pt-8">
+            <main className="pt-8">
                 <AnimatePresence mode="wait">
                     <Routes location={location} key={location.pathname}>
                         <Route
@@ -60,7 +61,7 @@ export default function App() {
                     </Routes>
                 </AnimatePresence>
             </main>
-            <Footer />
+            {showFooter ? <Footer /> : null}
         </div>
     );
 }
